@@ -24,3 +24,9 @@ set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
 # tools of third-party libraries): it needs a certificate and fails the build. RoR is packaged by
 # tools/xbox/package-msix.ps1 instead.
 set(CMAKE_VS_GLOBALS "AppxPackage=false;GenerateAppxPackageOnBuild=false;AppxPackageSigningEnabled=false" CACHE STRING "" FORCE)
+
+# AppContainer projects default to SDL checks (/sdl), which turn C4996 ("POSIX name deprecated",
+# "strcpy unsafe") into hard errors in third-party C code (zziplib, freetype, ...). Appended so a
+# -DCMAKE_<LANG>_FLAGS_INIT given on the command line is kept.
+string(APPEND CMAKE_C_FLAGS_INIT   " /sdl- /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS")
+string(APPEND CMAKE_CXX_FLAGS_INIT " /sdl- /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS")
