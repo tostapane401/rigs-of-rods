@@ -68,14 +68,9 @@ foreach ($dll in @("OgreMain.dll", "RenderSystem_Direct3D11.dll", "Codec_STBI.dl
 
 Copy-Item -Recurse (Join-Path $RoRRoot "tools\xbox\package\Assets") (Join-Path $Layout "Assets")
 
-# --- D3D shader compiler (redistributable) -------------------------------------------------------
-# OGRE's D3D11 render system and the RTSS compile HLSL at runtime with D3DCompile. Ship the SDK's
-# redistributable copy instead of relying on the console OS image.
-$d3dc = @("${env:ProgramFiles(x86)}\Windows Kits\10\Redist\D3D\x64\d3dcompiler_47.dll") +
-        (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\d3dcompiler_47.dll" -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object FullName) |
-        Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-if ($d3dc) { Copy-Item $d3dc $Layout -Force; Write-Host "Packaged $d3dc" }
-else { Write-Host "::warning title=d3dcompiler::d3dcompiler_47.dll redistributable not found in the Windows SDK" }
+# --- D3D shader compiler ---------------------------------------------------------------------------
+# NOT packaged on purpose: the SDK "Redist\D3D" d3dcompiler_47.dll is a desktop build (not
+# AppContainer, imports advapi32/rpcrt4). UWP apps use the copy that ships with the OS.
 
 # --- Import check: every DLL a module imports must be in the package, in VCLibs or in the OS ------
 $dumpbin = (Get-Command dumpbin.exe -ErrorAction SilentlyContinue).Source
