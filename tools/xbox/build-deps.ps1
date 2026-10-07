@@ -101,7 +101,9 @@ Build-CMake "ogre" $ogre @(
     "-DOGRE_BUILD_COMPONENT_PYTHON=OFF", "-DOGRE_BUILD_COMPONENT_JAVA=OFF", "-DOGRE_BUILD_COMPONENT_CSHARP=OFF",
     "-DOGRE_BUILD_COMPONENT_VOLUME=OFF", "-DOGRE_BUILD_COMPONENT_PROPERTY=OFF", "-DOGRE_BUILD_COMPONENT_HLMS=OFF",
     "-DOGRE_BUILD_SAMPLES=OFF", "-DOGRE_BUILD_TOOLS=OFF", "-DOGRE_BUILD_TESTS=OFF",
-    "-DOGRE_INSTALL_SAMPLES=OFF", "-DOGRE_INSTALL_DOCS=OFF", "-DOGRE_INSTALL_PDB=OFF")
+    "-DOGRE_INSTALL_SAMPLES=OFF", "-DOGRE_INSTALL_DOCS=OFF", "-DOGRE_INSTALL_PDB=OFF",
+    # WiX is preinstalled on the runner: OGRE would then add a demo_installer target depending on SampleBrowser.
+    "-DCMAKE_DISABLE_FIND_PACKAGE_Wix=TRUE", "-DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=TRUE", "-DCMAKE_DISABLE_FIND_PACKAGE_SDL2=TRUE")
 
 $ogreCMakeDir = @("$Prefix\CMake", "$Prefix\lib\OGRE\cmake", "$Prefix\share\OGRE\cmake") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $ogreCMakeDir) { throw "OGRE: OGREConfig.cmake not found under $Prefix" }
