@@ -118,6 +118,13 @@ foreach ($f in @("MyGUIEngine\include\MyGUI_ClipboardManager.h", "MyGUIEngine\sr
     $c = $c -replace '#if MYGUI_PLATFORM == MYGUI_PLATFORM_WIN32', '#if MYGUI_PLATFORM == MYGUI_PLATFORM_WIN32 && !defined(MYGUI_UWP)'
     Set-Content -NoNewline -Path $p -Value $c
 }
+# timeGetTime() (winmm) is not in the UWP API set -> GetTickCount64().
+$timer = Join-Path $mygui "MyGUIEngine\src\MyGUI_Timer.cpp"
+$c = Get-Content -Raw $timer
+if ($c -notmatch 'MYGUI_UWP') {
+    $c = $c.Replace('return timeGetTime();', "#if defined(MYGUI_UWP)`n`t`treturn (unsigned long)GetTickCount64();`n#else`n`t`treturn timeGetTime();`n#endif")
+    Set-Content -NoNewline -Path $timer -Value $c
+}
 Build-CMake "mygui" $mygui @(
     "-DMYGUI_RENDERSYSTEM=3", "-DMYGUI_STATIC=ON", "-DMYGUI_DISABLE_PLUGINS=ON", "-DMYGUI_USE_FREETYPE=ON",
     "-DMYGUI_BUILD_DEMOS=OFF", "-DMYGUI_BUILD_TOOLS=OFF", "-DMYGUI_BUILD_PLUGINS=OFF", "-DMYGUI_BUILD_UNITTESTS=OFF",
