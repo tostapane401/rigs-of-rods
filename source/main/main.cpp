@@ -193,10 +193,13 @@ int main(int argc, char *argv[])
 
         if (!App::diag_warning_texture->getBool())
         {
-            // We overwrite the default warning texture (yellow stripes) with something unobtrusive
-            Ogre::uchar data[3] = {0};
-            Ogre::PixelBox pixels(1, 1, 1, Ogre::PF_BYTE_RGB, &data);
-            Ogre::TextureManager::getSingleton()._getWarningTexture()->getBuffer()->blitFromMemory(pixels);
+            // We overwrite the default warning texture (yellow stripes) with something unobtrusive.
+            // The source box must match the texture size: D3D11 cannot scale in blitFromMemory()
+            // ("source and dest size are not the same"), unlike D3D9/GL which accepted a 1x1 box.
+            Ogre::HardwarePixelBufferSharedPtr warn_buf = Ogre::TextureManager::getSingleton()._getWarningTexture()->getBuffer();
+            std::vector<Ogre::uchar> data(warn_buf->getWidth() * warn_buf->getHeight() * warn_buf->getDepth() * 3, 0);
+            Ogre::PixelBox pixels(warn_buf->getWidth(), warn_buf->getHeight(), warn_buf->getDepth(), Ogre::PF_BYTE_RGB, data.data());
+            warn_buf->blitFromMemory(pixels);
         }
 
         App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::FLAGS);
