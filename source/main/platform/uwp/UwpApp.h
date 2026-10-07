@@ -46,6 +46,16 @@ bool IsVisible();
 /// Size of the CoreWindow in physical pixels (DIPs * scale).
 void GetWindowPixelSize(int& width, int& height);
 
+// --- Diagnostics (work before OGRE/RoR logging exists) ---
+
+/// Appends a timestamped line to LocalState\startup-trace.txt and flushes it immediately, so the
+/// last line written before a crash survives. Readable from Device Portal > File explorer.
+void Trace(const char* fmt, ...);
+
+/// Shows a blocking message box on the TV (Windows.UI.Popups.MessageDialog) and returns when the
+/// user dismisses it. Safe to call from the RoR main thread (= CoreWindow thread).
+void ShowMessage(const char* title, const char* text);
+
 // --- Raw input taps (CoreWindow thread == RoR main thread, no locking needed) ---
 
 struct KeyboardEvent  { uint16_t scancode; bool extended; bool down; };

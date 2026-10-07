@@ -68,6 +68,48 @@ foreach ($dll in @("OgreMain.dll", "RenderSystem_Direct3D11.dll", "Codec_STBI.dl
 
 Copy-Item -Recurse (Join-Path $RoRRoot "tools\xbox\package\Assets") (Join-Path $Layout "Assets")
 
+# --- D3D shader compiler (redistributable) -------------------------------------------------------
+# OGRE's D3D11 render system and the RTSS compile HLSL at runtime with D3DCompile. Ship the SDK's
+# redistributable copy instead of relying on the console OS image.
+$d3dc = @("${env:ProgramFiles(x86)}\Windows Kits\10\Redist\D3D\x64\d3dcompiler_47.dll") +
+        (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\d3dcompiler_47.dll" -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object FullName) |
+        Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if ($d3dc) { Copy-Item $d3dc $Layout -Force; Write-Host "Packaged $d3dc" }
+else { Write-Host "::warning title=d3dcompiler::d3dcompiler_47.dll redistributable not found in the Windows SDK" }
+
+# --- Import check: every DLL a module imports must be in the package, in VCLibs or in the OS ------
+$dumpbin = (Get-Command dumpbin.exe -ErrorAction SilentlyContinue).Source
+if ($dumpbin) {
+    $inPackage = @{}
+    Get-ChildItem $Layout -Filter *.dll | ForEach-Object { $inPackage[$_.Name.ToLower()] = $true }
+    # Provided by the Microsoft.VCLibs.140.00 framework package or by the OS for UWP apps.
+    $provided = @("vcruntime140_app.dll", "vcruntime140_1_app.dll", "msvcp140_app.dll", "msvcp140_1_app.dll",
+                  "msvcp140_2_app.dll", "vccorlib140_app.dll", "concrt140_app.dll", "ucrtbase.dll",
+                  "kernel32.dll", "d3d11.dll", "dxgi.dll", "ws2_32.dll", "bcrypt.dll", "xinput1_4.dll",
+                  "mmdevapi.dll", "ole32.dll", "oleaut32.dll", "combase.dll", "ntdll.dll", "d3dcompiler_47.dll")
+    $report = @()
+    $missing = @()
+    foreach ($m in (Get-ChildItem -Path "$Layout\*" -Include *.exe, *.dll)) {
+        $deps = & $dumpbin /nologo /dependents $m.FullName | Where-Object { $_ -match '^\s+\S+\.dll\s*$' } | ForEach-Object { $_.Trim().ToLower() }
+        $hdr = & $dumpbin /nologo /headers $m.FullName | Select-String -Pattern 'App Container' -SimpleMatch
+        $other = $deps | Where-Object { $_ -notmatch '^(api|ext)-ms-' }
+        $report += ("{0}: AppContainer={1}; imports: {2}" -f $m.Name, [bool]$hdr, ($other -join ", "))
+        foreach ($d in $other) {
+            if (-not $inPackage.ContainsKey($d) -and $provided -notcontains $d) { $missing += "$($m.Name) -> $d" }
+        }
+        if (-not $hdr -and $m.Extension -eq ".exe") { $missing += "$($m.Name) is NOT linked with /APPCONTAINER" }
+    }
+    $report | Set-Content (Join-Path $OutDir "package-imports.txt")
+    $summary = ($report -join "`n").Replace('%', '%25').Replace("`n", '%0A')
+    Write-Host "::notice title=Package imports::$summary"
+    if ($missing.Count) {
+        $msg = ("Missing at runtime:`n" + ($missing -join "`n")).Replace("`n", '%0A')
+        Write-Host "::warning title=Package dependency check::$msg"
+    }
+} else {
+    Write-Host "::warning title=dumpbin::dumpbin.exe not on PATH, import check skipped"
+}
+
 # --- VCLibs framework dependency ------------------------------------------------------------------
 $vclibs = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft SDKs\Windows Kits\10\ExtensionSDKs\Microsoft.VCLibs\14.0\Appx\Retail\x64" -Filter "Microsoft.VCLibs.x64.14.00.appx" -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $vclibs) { throw "Microsoft.VCLibs.x64.14.00.appx not found (install the 'Universal Windows Platform development' VS workload)" }

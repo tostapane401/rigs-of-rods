@@ -35,6 +35,7 @@
 #define _L
 #elif OGRE_PLATFORM == OGRE_PLATFORM_WINRT
 #include <windows.h> // OutputDebugStringW() - no MessageBox in the UWP API set
+#include "UwpApp.h"    // RoR::Uwp::ShowMessage() - MessageDialog on the TV
 #define _L
 #elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
 #define _L
@@ -74,6 +75,7 @@ int ErrorUtils::ShowMsgBox(const std::string& title, const std::string& err, int
     std::wstring msg_w = RoR::Utf8ToWideChar(title + ": " + err + "\n");
     OutputDebugStringW(msg_w.c_str());
     (void)type;
+    RoR::Uwp::ShowMessage(title.c_str(), err.c_str());
 #elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
 	printf("\n\n%s: %s\n\n", title.c_str(), err.c_str());
 #elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE

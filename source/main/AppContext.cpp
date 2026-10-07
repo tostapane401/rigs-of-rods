@@ -256,11 +256,19 @@ bool AppContext::SetUpRendering()
                 // UWP: OGRE uses LoadPackagedLibrary(), which only accepts paths relative
                 // to the package root -> load by bare module name.
                 m_ogre_root->loadPlugin(plugin_filename);
+                RoR::Uwp::Trace("plugin loaded: %s", plugin_filename.c_str());
 #else
                 m_ogre_root->loadPlugin(PathCombine(plugin_dir, plugin_filename));
 #endif
             }
-            catch (Ogre::Exception&) {} // Logged by OGRE
+            catch (Ogre::Exception& e) // Logged by OGRE
+            {
+#if OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+                RoR::Uwp::Trace("plugin FAILED: %s: %s", plugin_filename.c_str(), e.getDescription().c_str());
+#else
+                (void)e;
+#endif
+            }
         }
     }
     catch (Ogre::Exception& e)

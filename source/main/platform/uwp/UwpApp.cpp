@@ -29,6 +29,13 @@
 #include <d3d11.h>
 #include <dxgi1_3.h>
 
+#include <cstdarg>
+#include <cstdlib>
+#include <cstdio>
+#include <ctime>
+#include <exception>
+#include <string>
+
 #include <winrt/base.h>
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Windows.ApplicationModel.Activation.h>
@@ -39,6 +46,8 @@
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.Core.h>
 #include <winrt/Windows.UI.Input.h>
+#include <winrt/Windows.UI.Popups.h>
+#include <winrt/Windows.Storage.h>
 #include <winrt/Windows.UI.ViewManagement.h>
 
 using namespace winrt;
@@ -51,9 +60,48 @@ using namespace winrt::Windows::Graphics::Display;
 using namespace winrt::Windows::UI::Core;
 using namespace winrt::Windows::UI::ViewManagement;
 
+extern "C" IMAGE_DOS_HEADER __ImageBase; // base address of RoR.exe, for crash offsets
+
 namespace {
 
 CoreWindow g_window{ nullptr };
+std::wstring g_trace_path;
+
+void InitTracePath()
+{
+    try
+    {
+        g_trace_path = std::wstring(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path().c_str()) + L"\\startup-trace.txt";
+        FILE* f = _wfopen(g_trace_path.c_str(), L"w"); // new file per launch
+        if (f) { std::fputs("Rigs of Rods UWP startup trace\n", f); std::fclose(f); }
+    }
+    catch (...) { g_trace_path.clear(); }
+}
+
+LONG WINAPI CrashFilter(EXCEPTION_POINTERS* ep)
+{
+    const auto* rec = ep ? ep->ExceptionRecord : nullptr;
+    const uintptr_t addr = rec ? (uintptr_t)rec->ExceptionAddress : 0;
+    const uintptr_t base = (uintptr_t)&__ImageBase;
+    RoR::Uwp::Trace("CRASH: exception 0x%08lX at address %p (RoR.exe base %p, offset +0x%llX if inside RoR.exe)",
+                    rec ? (unsigned long)rec->ExceptionCode : 0ul, (void*)addr, (void*)base,
+                    (unsigned long long)(addr - base));
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void TerminateHandler()
+{
+    std::string what = "unknown";
+    try
+    {
+        if (auto ex = std::current_exception()) std::rethrow_exception(ex);
+    }
+    catch (winrt::hresult_error const& e) { what = "hresult_error 0x" + std::to_string((unsigned)e.code()) + " " + winrt::to_string(e.message()); }
+    catch (std::exception const& e)      { what = std::string("std::exception: ") + e.what(); }
+    catch (...) {}
+    RoR::Uwp::Trace("CRASH: std::terminate (uncaught C++ exception): %s", what.c_str());
+    std::abort();
+}
 bool       g_window_closed = false;
 bool       g_visible       = true;
 
@@ -166,21 +214,32 @@ struct RoRFrameworkView : implements<RoRFrameworkView, IFrameworkViewSource, IFr
             DispatchPointer(a, a.CurrentPoint().Properties().MouseWheelDelta());
         });
 
-        // Relative mouse movement (camera look with a USB mouse).
-        MouseDevice::GetForCurrentView().MouseMoved([](auto&&, MouseEventArgs const& a)
+        // Optional platform features: none of them may abort the launch if unsupported.
+        try
         {
-            if (g_on_mouse_delta) g_on_mouse_delta(a.MouseDelta().X, a.MouseDelta().Y);
-        });
-
-        // Xbox: render edge-to-edge instead of inside the TV safe area (the game UI must then
-        // keep its own safe margins, ~5% per side).
-        ApplicationView::GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode::UseCoreWindow);
-
-        // Xbox: the B button raises BackRequested. If not handled, the app is navigated away from.
-        SystemNavigationManager::GetForCurrentView().BackRequested([](auto&&, BackRequestedEventArgs const& a)
+            // Relative mouse movement (camera look with a USB mouse).
+            MouseDevice::GetForCurrentView().MouseMoved([](auto&&, MouseEventArgs const& a)
+            {
+                if (g_on_mouse_delta) g_on_mouse_delta(a.MouseDelta().X, a.MouseDelta().Y);
+            });
+        }
+        catch (winrt::hresult_error const& e) { RoR::Uwp::Trace("MouseDevice unavailable: %s", winrt::to_string(e.message()).c_str()); }
+        try
         {
-            a.Handled(true);
-        });
+            // Xbox: render edge-to-edge instead of inside the TV safe area.
+            ApplicationView::GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode::UseCoreWindow);
+        }
+        catch (winrt::hresult_error const& e) { RoR::Uwp::Trace("SetDesiredBoundsMode failed: %s", winrt::to_string(e.message()).c_str()); }
+        try
+        {
+            // Xbox: the B button raises BackRequested. If not handled, the app is navigated away from.
+            SystemNavigationManager::GetForCurrentView().BackRequested([](auto&&, BackRequestedEventArgs const& a)
+            {
+                a.Handled(true);
+            });
+        }
+        catch (winrt::hresult_error const& e) { RoR::Uwp::Trace("BackRequested unavailable: %s", winrt::to_string(e.message()).c_str()); }
+        RoR::Uwp::Trace("SetWindow done");
     }
 
     void Load(hstring const&) {}
@@ -193,7 +252,23 @@ struct RoRFrameworkView : implements<RoRFrameworkView, IFrameworkViewSource, IFr
 
         char arg0[] = "RoR.exe";
         char* argv[] = { arg0, nullptr };
-        RoR_GameMain(1, argv); // RoR main loop; returns on shutdown.
+        RoR::Uwp::Trace("Run: entering RoR_GameMain");
+        int rc = -1;
+        try
+        {
+            rc = RoR_GameMain(1, argv); // RoR main loop; returns on shutdown.
+        }
+        catch (winrt::hresult_error const& e)
+        {
+            RoR::Uwp::Trace("Uncaught WinRT error: %s", winrt::to_string(e.message()).c_str());
+            RoR::Uwp::ShowMessage("Rigs of Rods - fatal error", winrt::to_string(e.message()).c_str());
+        }
+        catch (std::exception const& e)
+        {
+            RoR::Uwp::Trace("Uncaught exception: %s", e.what());
+            RoR::Uwp::ShowMessage("Rigs of Rods - fatal error", e.what());
+        }
+        RoR::Uwp::Trace("RoR_GameMain returned %d", rc);
 
         CoreApplication::Exit();
     }
@@ -243,6 +318,43 @@ bool PumpEvents()
 
 bool IsVisible() { return g_visible; }
 
+void Trace(const char* fmt, ...)
+{
+    if (g_trace_path.empty())
+        return;
+    char buf[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    FILE* f = _wfopen(g_trace_path.c_str(), L"a");
+    if (!f)
+        return;
+    const std::time_t t = std::time(nullptr);
+    char ts[32] = {};
+    std::strftime(ts, sizeof(ts), "%H:%M:%S", std::localtime(&t));
+    std::fprintf(f, "[%s] %s\n", ts, buf);
+    std::fclose(f); // close every time: the line must survive a crash right after
+    OutputDebugStringA(buf);
+    OutputDebugStringA("\n");
+}
+
+void ShowMessage(const char* title, const char* text)
+{
+    Trace("MessageBox: %s: %s", title, text);
+    try
+    {
+        if (!g_window)
+            return;
+        winrt::Windows::UI::Popups::MessageDialog dlg(winrt::to_hstring(text), winrt::to_hstring(title));
+        auto op = dlg.ShowAsync();
+        // Nested pump: we are on the CoreWindow thread, blocking .get() is not allowed (STA).
+        while (op.Status() == winrt::Windows::Foundation::AsyncStatus::Started && !g_window_closed)
+            g_window.Dispatcher().ProcessEvents(CoreProcessEventsOption::ProcessOneIfPresent);
+    }
+    catch (...) {}
+}
+
 void GetWindowPixelSize(int& width, int& height)
 {
     width = height = 0;
@@ -264,6 +376,10 @@ void SetMouseDeltaHandler(std::function<void(int, int)> fn)           { g_on_mou
 // Process entry point for the UWP package (replaces main()/WinMain()).
 int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
+    InitTracePath();
+    SetUnhandledExceptionFilter(CrashFilter);
+    std::set_terminate(TerminateHandler);
+    RoR::Uwp::Trace("wWinMain: process started");
     winrt::init_apartment(); // MTA, as recommended for CoreApplication games
     CoreApplication::Run(make<RoRFrameworkView>());
     return 0;

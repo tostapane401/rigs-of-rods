@@ -54,6 +54,9 @@
 #include "RTShaderBootstrap.h"
 #if defined(ROR_PLATFORM_UWP)
 #   include "UwpApp.h"
+#   define ROR_STARTUP_TRACE(_MSG_) RoR::Uwp::Trace("startup: %s", _MSG_)
+#else
+#   define ROR_STARTUP_TRACE(_MSG_)
 #endif
 #include "RoRVersion.h"
 #include "ScriptEngine.h"
@@ -95,6 +98,7 @@ int main(int argc, char *argv[])
     {
 #endif
 
+        ROR_STARTUP_TRACE("RoR_GameMain entered");
         // Create cvars, set default values
         App::GetConsole()->cVarSetupBuiltins();
 
@@ -107,8 +111,10 @@ int main(int argc, char *argv[])
             return -1; // Error already displayed
         }
 
+        ROR_STARTUP_TRACE(("program paths ok, user dir = " + App::sys_user_dir->getStr()).c_str());
         // Create OGRE default logger early
         App::GetAppContext()->SetUpLogging();
+        ROR_STARTUP_TRACE("logging ok (RoR.log)");
 
         // User directories
         App::sys_config_dir    ->setStr(PathCombine(App::sys_user_dir->getStr(), "config"));
@@ -150,11 +156,15 @@ int main(int argc, char *argv[])
         // Make sure config directory exists - to save 'ogre.cfg'
         CreateFolder(App::sys_config_dir->getStr());
 
+        ROR_STARTUP_TRACE(("resources dir = " + App::sys_resources_dir->getStr()).c_str());
         // Load and start OGRE renderer, uses config directory
+        ROR_STARTUP_TRACE("SetUpRendering...");
         if (!App::GetAppContext()->SetUpRendering())
         {
+            ROR_STARTUP_TRACE("SetUpRendering FAILED");
             return -1; // Error already displayed
         }
+        ROR_STARTUP_TRACE("SetUpRendering ok");
 
         Ogre::TextureManager::getSingleton().setDefaultNumMipmaps(5);
 
@@ -201,7 +211,9 @@ int main(int argc, char *argv[])
 #endif // NOLANG
         App::GetConsole()->regBuiltinCommands(); // Call after localization had been set up
 
+        ROR_STARTUP_TRACE("InitContentManager...");
         App::GetContentManager()->InitContentManager();
+        ROR_STARTUP_TRACE("InitContentManager ok");
 
         // Set up rendering
         App::CreateGfxScene(); // Creates OGRE SceneManager, needs content manager
@@ -213,7 +225,9 @@ int main(int argc, char *argv[])
 
         App::GetDiscordRpc()->Init();
 
+        ROR_STARTUP_TRACE("GfxScene/Camera/GUI ok, SetUpInput...");
         App::GetAppContext()->SetUpInput();
+        ROR_STARTUP_TRACE("SetUpInput ok");
 
 #ifdef USE_ANGELSCRIPT
         CreateFolder(App::sys_scripts_dir->getStr());
@@ -342,6 +356,7 @@ int main(int argc, char *argv[])
         // --------------------------------------------------------------
 
         auto start_time = std::chrono::high_resolution_clock::now();
+        ROR_STARTUP_TRACE("entering main loop");
 
         while (App::app_state->getEnum<AppState>() != AppState::SHUTDOWN)
         {
@@ -2300,11 +2315,13 @@ int main(int argc, char *argv[])
     catch (Ogre::Exception& e)
     {
         LOG(e.getFullDescription());
+        ROR_STARTUP_TRACE(("Ogre::Exception: " + e.getFullDescription()).c_str());
         ErrorUtils::ShowError(_L("An exception has occured!"), e.getFullDescription());
     }
     catch (std::runtime_error& e)
     {
         LOG(e.what());
+        ROR_STARTUP_TRACE((std::string("std::runtime_error: ") + e.what()).c_str());
         ErrorUtils::ShowError(_L("An exception (std::runtime_error) has occured!"), e.what());
     }
 #endif
