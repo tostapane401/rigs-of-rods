@@ -114,9 +114,10 @@ jobs:
       # ------------------------------------------------------------------------------------------
       - name: Configure (WindowsStore, x64, Release)
         run: |
+          . ./tools/xbox/ci-common.ps1
           $prefix = "$env:DEPS_PREFIX" -replace '\\','/'
           $ogreDir = @("$env:DEPS_PREFIX\CMake", "$env:DEPS_PREFIX\lib\OGRE\cmake") | Where-Object { Test-Path $_ } | Select-Object -First 1
-          cmake -S . -B "$env:BUILD_DIR" `
+          Invoke-Logged "configure RoR" { cmake -S . -B "$env:BUILD_DIR" `
             -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/WindowsStore-x64.cmake `
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake `
@@ -124,13 +125,12 @@ jobs:
             -DROR_DEPENDENCY_DIR="$prefix" `
             -DOGRE_DIR="$($ogreDir -replace '\\','/')" `
             -DROR_CREATE_CONTENT_FOLDER=ON `
-            -DROR_BUILD_INSTALLER=Off
-          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+            -DROR_BUILD_INSTALLER=Off }
 
       - name: Build
         run: |
-          cmake --build "$env:BUILD_DIR" --config Release --parallel -- /m /p:CL_MPCount=2 /v:minimal
-          if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+          . ./tools/xbox/ci-common.ps1
+          Invoke-Logged "build RoR" { cmake --build "$env:BUILD_DIR" --config Release --parallel -- /m /p:CL_MPCount=2 /v:minimal /nologo }
 
       - name: Package (makeappx + signtool)
         env:
@@ -171,15 +171,21 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
+        run: |
+          # upload-artifact only accepts paths inside the workspace -> collect logs first
+          $dst = Join-Path $env:GITHUB_WORKSPACE "ci-logs"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\ror-ci-logs\*" $dst -ErrorAction SilentlyContinue
+          foreach ($f in Get-ChildItem -Recurse -Path "$env:DEPS_WORK\build", "$env:BUILD_DIR" -Include CMakeError.log, CMakeConfigureLog.yaml -ErrorAction SilentlyContinue) {
+            Copy-Item $f.FullName (Join-Path $dst (($f.FullName -replace '[:\\/]', '_')))
+          }
+
+      - name: Publish logs artifact
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: ror-xbox-uwp-logs-${{ github.run_number }}
-          path: |
-            ${{ env.BUILD_DIR }}/CMakeFiles/CMakeOutput.log
-            ${{ env.BUILD_DIR }}/CMakeFiles/CMakeError.log
-            ${{ env.BUILD_DIR }}/CMakeCache.txt
-            ${{ env.DEPS_WORK }}/build/**/CMakeFiles/CMakeError.log
-            ${{ env.DEPS_WORK }}/build/**/CMakeCache.txt
+          path: ci-logs
           if-no-files-found: ignore
           retention-days: 7
 

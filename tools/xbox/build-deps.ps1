@@ -34,16 +34,13 @@ $Prefix = (Resolve-Path $Prefix).Path
 $Work   = (Resolve-Path $Work).Path
 $PrefixFwd = $Prefix -replace '\\', '/'
 
-function Invoke-Native([string] $what, [scriptblock] $cmd) {
-    & $cmd
-    if ($LASTEXITCODE -ne 0) { throw "$what failed with exit code $LASTEXITCODE" }
-}
+. (Join-Path $PSScriptRoot "ci-common.ps1")   # Invoke-Logged: logs + GitHub error annotations
 
 function Get-Source([string] $name, [string] $url, [string] $tag = "") {
     $dir = Join-Path $Work "src\$name"
     if (-not (Test-Path $dir)) {
-        if ($tag) { Invoke-Native "git clone $name" { git clone --quiet --depth 1 --branch $tag $url $dir } }
-        else      { Invoke-Native "git clone $name" { git clone --quiet --depth 1 $url $dir } }
+        if ($tag) { Invoke-Logged "git clone $name" { git clone --quiet --depth 1 --branch $tag $url $dir } }
+        else      { Invoke-Logged "git clone $name" { git clone --quiet --depth 1 $url $dir } }
     }
     return $dir
 }
@@ -61,8 +58,8 @@ function Build-CMake([string] $name, [string] $src, [string[]] $extra) {
         "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"   # CMake 4.x vs. old cmake_minimum_required()
     ) + $extra
-    Invoke-Native "configure $name" { cmake @cfg }
-    Invoke-Native "build $name"     { cmake --build $bld --config Release --parallel --target INSTALL }
+    Invoke-Logged "configure $name" { cmake @cfg }
+    Invoke-Logged "build $name" { cmake --build $bld --config Release --parallel --target INSTALL -- /v:minimal /nologo }
     Write-Host "::endgroup::"
 }
 
