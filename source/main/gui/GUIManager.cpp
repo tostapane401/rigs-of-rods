@@ -403,6 +403,12 @@ void GUIManager::SetupImGui()
     style.ItemSpacing           = ImVec2(5.f, 5.f);
     style.GrabRounding          = 3.f;
     style.WindowBorderSize      = 0.f;
+#if defined(ROR_PLATFORM_UWP)
+    // 10-foot UI: same factor as the font size in ImGuiOverlay::addFont() (2.0 at 1080p).
+    const float ui_scale = std::max(1.f, (float)Ogre::OverlayManager::getSingleton().getViewportHeight() / 540.f);
+    style.ScaleAllSizes(ui_scale);
+    RoR::LogFormat("[RoR|Xbox] UI scale %.2f", ui_scale);
+#endif
 
     App::GetGfxScene()->GetSceneManager()->addRenderQueueListener(&m_imgui);
 }

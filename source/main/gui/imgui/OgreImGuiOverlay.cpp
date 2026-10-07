@@ -103,7 +103,14 @@ ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
 
     ImFontConfig cfg;
     strncpy(cfg.Name, name.c_str(), 40);
-    return io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), (int)ttfchunk.size(), font->getTrueTypeSize(), &cfg,
+    float size_px = font->getTrueTypeSize();
+#if defined(ROR_PLATFORM_UWP)
+    // 10-foot UI (TV at couch distance): rasterize the font bigger instead of scaling a small
+    // bitmap (FontGlobalScale would look blurry). Must match the style scale in GUIManager.
+    const float vp_h = (float)OverlayManager::getSingleton().getViewportHeight();
+    size_px *= std::max(1.f, vp_h / 540.f);
+#endif
+    return io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), (int)ttfchunk.size(), size_px, &cfg,
                                           cprangePtr);
 }
 
