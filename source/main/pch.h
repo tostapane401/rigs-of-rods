@@ -38,8 +38,10 @@
 #include <imgui.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
+#ifdef USE_OPENAL
 #include <AL/al.h>
 #include <AL/alc.h>
+#endif // USE_OPENAL
 #include <moFileReader.hpp>
 
 

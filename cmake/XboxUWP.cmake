@@ -78,6 +78,10 @@ function(ror_configure_uwp_target target)
         COMPILE_OPTIONS "/std:c++17;/bigobj"
         SKIP_PRECOMPILE_HEADERS ON)
 
+    # Prefix built by tools/xbox/build-deps.ps1: CMake's FindOpenAL returns <prefix>/include/AL,
+    # while RoR includes <AL/al.h>.
+    target_include_directories(${target} PRIVATE "${ROR_DEPENDENCY_DIR}/include")
+
     # Umbrella import library for all APIs allowed in the AppContainer (+ D3D for Trim on suspend).
     target_link_libraries(${target} PRIVATE WindowsApp.lib d3d11.lib dxgi.lib)
 
