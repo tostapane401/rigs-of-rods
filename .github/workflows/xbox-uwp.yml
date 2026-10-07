@@ -86,17 +86,26 @@ jobs:
       # Dependency prefix (OGRE 1.11.6 & co. for WindowsStore). Slow (~40-60 min) -> cached.
       # The key changes whenever the recipe (script/toolchain) changes.
       # ------------------------------------------------------------------------------------------
-      - name: Cache UWP dependency prefix
+      - name: Restore UWP dependency prefix
         id: deps-cache
         if: ${{ !inputs.rebuild_deps }}
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.DEPS_PREFIX }}
-          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
+          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'tools/xbox/ci-common.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
 
       - name: Build UWP dependencies (zlib, zziplib, freetype, OGRE, MyGUI, openal-soft, Caelum, PagedGeometry)
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: ./tools/xbox/build-deps.ps1 -Prefix "$env:DEPS_PREFIX" -Work "$env:DEPS_WORK"
+
+      # Saved immediately (not in the post-job phase) so later failures in the RoR build do not
+      # throw away ~30 minutes of dependency builds.
+      - name: Save UWP dependency prefix
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'tools/xbox/ci-common.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
 
       - name: Cache Conan packages
         uses: actions/cache@v6
@@ -117,15 +126,20 @@ jobs:
           . ./tools/xbox/ci-common.ps1
           $prefix = "$env:DEPS_PREFIX" -replace '\\','/'
           $ogreDir = @("$env:DEPS_PREFIX\CMake", "$env:DEPS_PREFIX\lib\OGRE\cmake") | Where-Object { Test-Path $_ } | Select-Object -First 1
-          Invoke-Logged "configure RoR" { cmake -S . -B "$env:BUILD_DIR" `
-            -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/WindowsStore-x64.cmake `
-            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake `
-            -DCONAN_INSTALL_ARGS="--build=missing" `
-            -DROR_DEPENDENCY_DIR="$prefix" `
-            -DOGRE_DIR="$($ogreDir -replace '\\','/')" `
-            -DROR_CREATE_CONTENT_FOLDER=ON `
-            -DROR_BUILD_INSTALLER=Off }
+          # Every -D argument is quoted: PowerShell splits unquoted native arguments that start
+          # with '-' at the first '.', e.g. -DX=a.cmake -> "-DX=a" ".cmake".
+          $cfg = @(
+            "-S", ".", "-B", "$env:BUILD_DIR",
+            "-G", "Visual Studio 17 2022", "-A", "x64",
+            "-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/WindowsStore-x64.cmake",
+            "-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake",
+            "-DCONAN_INSTALL_ARGS=--build=missing",
+            "-DROR_DEPENDENCY_DIR=$prefix",
+            "-DOGRE_DIR=$($ogreDir -replace '\\','/')",
+            "-DROR_CREATE_CONTENT_FOLDER=ON",
+            "-DROR_BUILD_INSTALLER=Off"
+          )
+          Invoke-Logged "configure RoR" { cmake @cfg }
 
       - name: Build
         run: |

@@ -52,6 +52,9 @@ function Build-CMake([string] $name, [string] $src, [string[]] $extra) {
         "-S", $src, "-B", $bld,
         "-G", $Generator, "-A", "x64",
         "-DCMAKE_TOOLCHAIN_FILE=$Toolchain",
+        # Also on the command line: some projects (openal-soft) test CMAKE_SYSTEM_NAME before
+        # project(), i.e. before the toolchain file is read.
+        "-DCMAKE_SYSTEM_NAME=WindowsStore", "-DCMAKE_SYSTEM_VERSION=10.0",
         "-DCMAKE_INSTALL_PREFIX=$PrefixFwd",
         "-DCMAKE_PREFIX_PATH=$PrefixFwd",
         "-DCMAKE_BUILD_TYPE=Release",
