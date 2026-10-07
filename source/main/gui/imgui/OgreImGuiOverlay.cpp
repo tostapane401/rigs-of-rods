@@ -181,7 +181,23 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
     int vpWidth = vp->getActualWidth();
     int vpHeight = vp->getActualHeight();
 
-    TextureUnitState* tu = mMaterial->getBestTechnique()->getPass(0)->getTextureUnitState(0);
+    const Pass* pass = mMaterial->getBestTechnique()->getPass(0);
+    TextureUnitState* tu = pass->getTextureUnitState(0);
+
+    // We issue the draw calls ourselves and return false, so SceneManager::_issueRenderOp() skips
+    // its "finalise GPU parameter bindings" step (OGRE 1.11 only updates them when preRender()
+    // returns true). With the fixed-function pipeline (D3D9/GL) that did not matter; with shaders
+    // (D3D11 + RTSS, Xbox) the vertex shader would run with the previous renderable's
+    // worldviewproj matrix and the whole UI collapses into a dot. Update and bind them here.
+    if (pass->isProgrammable())
+    {
+        pass->_updateAutoParams(sm->_getAutoParamDataSource(), GPV_ALL);
+        for (GpuProgramType t : {GPT_VERTEX_PROGRAM, GPT_FRAGMENT_PROGRAM})
+        {
+            if (pass->hasGpuProgram(t))
+                rsys->bindGpuProgramParameters(t, pass->getGpuProgramParameters(t), GPV_ALL);
+        }
+    }
 
     for (int i = 0; i < draw_data->CmdListsCount; ++i)
     {
