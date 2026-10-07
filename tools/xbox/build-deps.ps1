@@ -141,23 +141,17 @@ Build-CMake "socketw" $sw @(
     "-DBUILD_SHARED_LIBS=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE",
     "-DCMAKE_CXX_FLAGS_INIT=/D_WINSOCK_DEPRECATED_NO_WARNINGS")
 
-#    libcurl: Schannel TLS (curl detects WINAPI_FAMILY_APP as CURL_WINDOWS_APP). If Schannel is
-#    refused by the UWP API set, retry without TLS so that RoR still compiles (https disabled).
+#    libcurl: plain HTTP for now. Schannel needs SSPI (InitSecurityInterface & co.), which is not
+#    part of the UWP API set; a TLS backend that works in the AppContainer (e.g. mbedTLS) is a
+#    follow-up. Without TLS RoR compiles and runs; https downloads (repository browser) fail.
 $curl = Get-Source "curl" "https://github.com/curl/curl.git" "curl-8_10_1"
-$curlCommon = @(
+Build-CMake "curl" $curl @(
     "-DBUILD_SHARED_LIBS=ON", "-DBUILD_CURL_EXE=OFF", "-DBUILD_TESTING=OFF", "-DBUILD_LIBCURL_DOCS=OFF",
     "-DBUILD_MISC_DOCS=OFF", "-DENABLE_CURL_MANUAL=OFF", "-DCURL_USE_LIBPSL=OFF", "-DCURL_USE_LIBSSH2=OFF",
     "-DUSE_NGHTTP2=OFF", "-DUSE_LIBIDN2=OFF", "-DCURL_BROTLI=OFF", "-DCURL_ZSTD=OFF", "-DCURL_DISABLE_LDAP=ON",
-    "-DENABLE_UNICODE=OFF", "-DCURL_ZLIB=ON", "-DCURL_USE_OPENSSL=OFF",
+    "-DENABLE_UNICODE=OFF", "-DCURL_ZLIB=ON", "-DCURL_USE_OPENSSL=OFF", "-DCURL_USE_SCHANNEL=OFF",
+    "-DCURL_WINDOWS_SSPI=OFF", "-DCURL_ENABLE_SSL=OFF", "-DENABLE_IPV6=ON",
     "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE")
-try {
-    Build-CMake "curl" $curl ($curlCommon + @("-DCURL_USE_SCHANNEL=ON"))
-} catch {
-    Write-Host "::warning title=curl::Schannel build failed for UWP, retrying without TLS: $($_.Exception.Message)"
-    Write-Host "::endgroup::"
-    Remove-Item -Recurse -Force (Join-Path $Work "build\curl") -ErrorAction SilentlyContinue
-    Build-CMake "curl" $curl ($curlCommon + @("-DCURL_USE_SCHANNEL=OFF", "-DCURL_ENABLE_SSL=OFF"))
-}
 
 # 7) Optional components: failures are reported but do not stop the pipeline. RoR's CMake turns the
 #    matching ROR_USE_* option OFF when the package is missing (cmake_dependent_option).

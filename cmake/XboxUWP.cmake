@@ -68,7 +68,9 @@ function(ror_configure_uwp_target target)
         WINAPI_FAMILY=WINAPI_FAMILY_APP
         _WIN32_WINNT=0x0A00
         _HAS_AUTO_PTR_ETC=1                 # legacy std:: helpers still used by some deps
-        _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS)
+        _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
+        IMGUI_DISABLE_WIN32_FUNCTIONS          # Dear ImGui: no Win32 clipboard / IMM in the AppContainer
+        _WINSOCK_DEPRECATED_NO_WARNINGS)
 
     # C++/WinRT needs C++17; RoR itself builds as C++14 on desktop. Only the WinRT translation
     # units are compiled as C++17 and they skip the (C++14) precompiled header.
