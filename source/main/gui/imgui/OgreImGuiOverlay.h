@@ -49,6 +49,7 @@ private:
         const LightList& getLights(void) const;
 
         void createMaterial();
+        void attachD3D11Programs(Pass* pass);
         void createFontTexture();
 
         const MaterialPtr& getMaterial() const { return mMaterial; }
@@ -58,6 +59,7 @@ private:
         void _update();
 
         bool mConvertToBGR;
+        bool mHasOwnPrograms = false;
 
         Matrix4 mXform;
         RenderOperation mRenderOp;

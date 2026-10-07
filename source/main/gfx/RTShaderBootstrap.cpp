@@ -123,6 +123,18 @@ Technique* RTShaderBootstrap::SafeResolverListener::handleSchemeNotFound(
     if (m_reported.count(key))
         return m_fallback_technique;
 
+    // Material already has its own shaders (e.g. the ImGui overlay on D3D11): never let the RTSS
+    // generate a replacement technique for it - nullptr makes Ogre use the default-scheme one.
+    for (Technique* tech : originalMaterial->getSupportedTechniques())
+    {
+        if (tech->getSchemeName() == MaterialManager::DEFAULT_SCHEME_NAME)
+        {
+            if (TechniqueIsProgrammable(tech))
+                return nullptr;
+            break;
+        }
+    }
+
     try
     {
         // Stock OgreBites behaviour: createShaderBasedTechnique() + validateMaterial().

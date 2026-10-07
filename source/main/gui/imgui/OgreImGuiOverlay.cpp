@@ -18,6 +18,13 @@
 #include <OgreRenderQueue.h>
 #include <OgreFrameListener.h>
 #include <OgreRoot.h>
+#include <OgreHighLevelGpuProgramManager.h>
+#include <OgreHighLevelGpuProgram.h>
+#include <OgreGpuProgramParams.h>
+#include <OgreLogManager.h>
+#include <OgreStringConverter.h>
+#include <algorithm>
+#include <cstdio>
 
 namespace Ogre
 {
@@ -69,9 +76,73 @@ void ImGuiOverlay::ImGUIRenderable::createMaterial()
     mTexUnit->setTexture(mFontTex);
     mTexUnit->setTextureFiltering(TFO_NONE);
 
+    // Direct3D 11 has no fixed-function pipeline. Instead of letting the RTSS generate a shader
+    // (its worldviewproj path collapsed the whole UI into a small square on Xbox), use a tiny
+    // dedicated program pair: pixel coords -> NDC via one float4 uniform, colour * texture.
+    if (Root::getSingleton().getRenderSystem()->getName().find("Direct3D11") != String::npos)
+        attachD3D11Programs(mPass);
+
     mMaterial->load();
     mMaterial->setLightingEnabled(false);
     mMaterial->setDepthCheckEnabled(false);
+}
+
+void ImGuiOverlay::ImGUIRenderable::attachD3D11Programs(Pass* pass)
+{
+    static const char* VS_SRC =
+        "float4 scaleOffset;\n"
+        "struct VSIn  { float2 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR0; };\n"
+        "struct VSOut { float4 pos : SV_POSITION; float4 col : COLOR0; float2 uv : TEXCOORD0; };\n"
+        "VSOut main(VSIn i)\n"
+        "{\n"
+        "    VSOut o;\n"
+        "    o.pos = float4(i.pos * scaleOffset.xy + scaleOffset.zw, 0.0, 1.0);\n"
+        "    o.col = i.col;\n"
+        "    o.uv  = i.uv;\n"
+        "    return o;\n"
+        "}\n";
+    static const char* PS_SRC =
+        "Texture2D    fontTex  : register(t0);\n"
+        "SamplerState fontSamp : register(s0);\n"
+        "float4 main(float4 pos : SV_POSITION, float4 col : COLOR0, float2 uv : TEXCOORD0) : SV_Target\n"
+        "{\n"
+        "    return col * fontTex.Sample(fontSamp, uv);\n"
+        "}\n";
+
+    try
+    {
+        HighLevelGpuProgramManager& mgr = HighLevelGpuProgramManager::getSingleton();
+        HighLevelGpuProgramPtr vs = mgr.createProgram("ImGui/VS_D3D11", RGN_INTERNAL, "hlsl", GPT_VERTEX_PROGRAM);
+        vs->setSource(VS_SRC);
+        vs->setParameter("entry_point", "main");
+        vs->setParameter("target", "vs_4_0");
+        vs->load();
+
+        HighLevelGpuProgramPtr ps = mgr.createProgram("ImGui/PS_D3D11", RGN_INTERNAL, "hlsl", GPT_FRAGMENT_PROGRAM);
+        ps->setSource(PS_SRC);
+        ps->setParameter("entry_point", "main");
+        ps->setParameter("target", "ps_4_0");
+        ps->load();
+
+        if (vs->hasCompileError() || ps->hasCompileError() || !vs->isSupported() || !ps->isSupported())
+        {
+            LogManager::getSingleton().logMessage("[ImGui] D3D11 programs failed to compile, using RTSS", LML_CRITICAL);
+            return;
+        }
+
+        pass->setVertexProgram(vs->getName());
+        pass->setFragmentProgram(ps->getName());
+        pass->getVertexProgramParameters()->setIgnoreMissingParams(true);
+        mHasOwnPrograms = true;
+        LogManager::getSingleton().logMessage("[ImGui] Using dedicated D3D11 HLSL programs (no RTSS)");
+    }
+    catch (Exception& e)
+    {
+        LogManager::getSingleton().logMessage("[ImGui] D3D11 programs unavailable: " + e.getFullDescription(), LML_CRITICAL);
+        pass->setVertexProgram("");
+        pass->setFragmentProgram("");
+        mHasOwnPrograms = false;
+    }
 }
 
 ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
@@ -196,7 +267,28 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
     // returns true). With the fixed-function pipeline (D3D9/GL) that did not matter; with shaders
     // (D3D11 + RTSS, Xbox) the vertex shader would run with the previous renderable's
     // worldviewproj matrix and the whole UI collapses into a dot. Update and bind them here.
-    if (pass->isProgrammable())
+    if (mHasOwnPrograms && pass->hasVertexProgram())
+    {
+        // pixel -> NDC: x' = x * 2/W - 1, y' = 1 - y * 2/H (draw_data->DisplayPos is (0,0) here)
+        const float w = std::max(1.f, draw_data->DisplaySize.x);
+        const float h = std::max(1.f, draw_data->DisplaySize.y);
+        pass->getVertexProgramParameters()->setNamedConstant(
+            "scaleOffset", Vector4(2.f / w, -2.f / h, -1.f - 2.f * draw_data->DisplayPos.x / w,
+                                   1.f + 2.f * draw_data->DisplayPos.y / h));
+        rsys->bindGpuProgramParameters(GPT_VERTEX_PROGRAM, pass->getVertexProgramParameters(), GPV_ALL);
+        if (pass->hasFragmentProgram())
+            rsys->bindGpuProgramParameters(GPT_FRAGMENT_PROGRAM, pass->getFragmentProgramParameters(), GPV_ALL);
+
+        static int s_logged = 0;
+        if (s_logged++ < 3)
+        {
+            char msg[160];
+            snprintf(msg, sizeof(msg), "[ImGui] own D3D11 programs: display %.0fx%.0f, viewport %dx%d, lists %d",
+                     w, h, vpWidth, vpHeight, draw_data->CmdListsCount);
+            LogManager::getSingleton().logMessage(msg);
+        }
+    }
+    else if (pass->isProgrammable())
     {
         pass->_updateAutoParams(sm->_getAutoParamDataSource(), GPV_ALL);
         for (GpuProgramType t : {GPT_VERTEX_PROGRAM, GPT_FRAGMENT_PROGRAM})
