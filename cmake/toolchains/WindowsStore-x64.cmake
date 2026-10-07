@@ -17,6 +17,8 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE 
 
 # Release-only (RelWithDebInfo in RoR uses /DYNAMICBASE:NO, which UWP rejects).
 set(CMAKE_CONFIGURATION_TYPES "Release" CACHE STRING "" FORCE)
+# try_compile() builds "Debug" by default, which then does not exist in the generated projects.
+set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
 
 # Never let MSBuild try to produce/sign an .appx for helper executables (try_compile checks, examples,
 # tools of third-party libraries): it needs a certificate and fails the build. RoR is packaged by
