@@ -87,6 +87,10 @@ function(ror_configure_uwp_target target)
     # while RoR includes <AL/al.h>.
     target_include_directories(${target} PRIVATE "${ROR_DEPENDENCY_DIR}/include")
 
+    # MyGUI is built static for UWP: its FreeType dependency must be linked by the executable.
+    find_package(Freetype REQUIRED)
+    target_link_libraries(${target} PRIVATE Freetype::Freetype)
+
     # Umbrella import library for all APIs allowed in the AppContainer (+ D3D for Trim on suspend).
     target_link_libraries(${target} PRIVATE WindowsApp.lib d3d11.lib dxgi.lib)
 
