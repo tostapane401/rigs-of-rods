@@ -120,7 +120,7 @@ void OnSuspendingImpl()
     }
 }
 
-struct RoRFrameworkView : implements<RoRFrameworkView, IFrameworkView, IFrameworkViewSource>
+struct RoRFrameworkView : implements<RoRFrameworkView, IFrameworkViewSource, IFrameworkView> // ViewSource first: make<>() returns the first interface
 {
     IFrameworkView CreateView() { return *this; }
 

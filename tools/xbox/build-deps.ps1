@@ -39,8 +39,8 @@ $PrefixFwd = $Prefix -replace '\\', '/'
 function Get-Source([string] $name, [string] $url, [string] $tag = "") {
     $dir = Join-Path $Work "src\$name"
     if (-not (Test-Path $dir)) {
-        if ($tag) { Invoke-Logged "git clone $name" { git clone --quiet --depth 1 --branch $tag $url $dir } }
-        else      { Invoke-Logged "git clone $name" { git clone --quiet --depth 1 $url $dir } }
+        if ($tag) { Invoke-Logged "git clone $name" { git -c credential.interactive=never clone --quiet --depth 1 --branch $tag $url $dir } -TimeoutMinutes 15 }
+        else      { Invoke-Logged "git clone $name" { git -c credential.interactive=never clone --quiet --depth 1 $url $dir } -TimeoutMinutes 15 }
     }
     return $dir
 }
@@ -61,8 +61,8 @@ function Build-CMake([string] $name, [string] $src, [string[]] $extra) {
         "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"   # CMake 4.x vs. old cmake_minimum_required()
     ) + $extra
-    Invoke-Logged "configure $name" { cmake @cfg }
-    Invoke-Logged "build $name" { cmake --build $bld --config Release --parallel --target INSTALL -- /v:minimal /nologo }
+    Invoke-Logged "configure $name" { cmake @cfg } -TimeoutMinutes 20
+    Invoke-Logged "build $name" { cmake --build $bld --config Release --parallel --target INSTALL -- /nr:false /v:minimal /nologo } -TimeoutMinutes 60
     Write-Host "::endgroup::"
 }
 

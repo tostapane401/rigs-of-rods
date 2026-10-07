@@ -36,10 +36,7 @@ $Layout = Join-Path $OutDir "layout"
 if (Test-Path $Layout) { Remove-Item -Recurse -Force $Layout }
 New-Item -ItemType Directory -Force -Path $Layout | Out-Null
 
-function Invoke-Native([string] $what, [scriptblock] $cmd) {
-    & $cmd
-    if ($LASTEXITCODE -ne 0) { throw "$what failed with exit code $LASTEXITCODE" }
-}
+. (Join-Path $PSScriptRoot "ci-common.ps1")   # Invoke-Logged: non-interactive, timeout, annotations
 
 # --- Windows SDK tools -------------------------------------------------------------------------
 $sdkBin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
@@ -95,13 +92,13 @@ Set-Content -Path (Join-Path $Layout "AppxManifest.xml") -Value $manifest -Encod
 # --- resources.pri (tile/splash lookup) - non fatal ------------------------------------------------
 try {
     $priCfg = Join-Path $OutDir "priconfig.xml"
-    Invoke-Native "makepri createconfig" { & $makepri createconfig /cf $priCfg /dq en-US /o | Out-Host }
-    Invoke-Native "makepri new" { & $makepri new /pr $Layout /cf $priCfg /mn (Join-Path $Layout "AppxManifest.xml") /of (Join-Path $Layout "resources.pri") /o | Out-Host }
+    Invoke-Logged "makepri createconfig" { & $makepri createconfig /cf $priCfg /dq en-US /o } -TimeoutMinutes 15
+    Invoke-Logged "makepri new" { & $makepri new /pr $Layout /cf $priCfg /mn (Join-Path $Layout "AppxManifest.xml") /of (Join-Path $Layout "resources.pri") /o } -TimeoutMinutes 15
 } catch { Write-Host "::warning::makepri failed, packaging without resources.pri: $($_.Exception.Message)" }
 
 # --- Pack ----------------------------------------------------------------------------------------
 $msix = Join-Path $OutDir "RigsOfRods_$($Version)_x64.msix"
-Invoke-Native "makeappx pack" { & $makeappx pack /d $Layout /p $msix /o | Out-Host }
+Invoke-Logged "makeappx pack" { & $makeappx pack /d $Layout /p $msix /o } -TimeoutMinutes 15
 
 # --- Certificate -----------------------------------------------------------------------------------
 if (-not $Pfx) {
@@ -121,15 +118,15 @@ if (-not $Pfx) {
     [System.IO.File]::WriteAllBytes((Join-Path $OutDir "RigsOfRods-dev.cer"), $pfxObj.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
 }
 
-Invoke-Native "signtool msix" { & $signtool sign /fd SHA256 /f $Pfx /p $PfxPassword $msix | Out-Host }
+Invoke-Logged "signtool msix" { & $signtool sign /fd SHA256 /f $Pfx /p $PfxPassword $msix } -TimeoutMinutes 15
 
 # --- Bundle (Device Portal accepts .msix and .msixbundle) -----------------------------------------
 $bundleIn = Join-Path $OutDir "bundle-in"
 New-Item -ItemType Directory -Force -Path $bundleIn | Out-Null
 Copy-Item $msix $bundleIn
 $bundle = Join-Path $OutDir "RigsOfRods_$($Version).msixbundle"
-Invoke-Native "makeappx bundle" { & $makeappx bundle /d $bundleIn /p $bundle /bv $Version /o | Out-Host }
-Invoke-Native "signtool bundle" { & $signtool sign /fd SHA256 /f $Pfx /p $PfxPassword $bundle | Out-Host }
+Invoke-Logged "makeappx bundle" { & $makeappx bundle /d $bundleIn /p $bundle /bv $Version /o } -TimeoutMinutes 15
+Invoke-Logged "signtool bundle" { & $signtool sign /fd SHA256 /f $Pfx /p $PfxPassword $bundle } -TimeoutMinutes 15
 Remove-Item -Recurse -Force $bundleIn, $Layout
 Remove-Item -Force (Join-Path $OutDir "priconfig.xml") -ErrorAction SilentlyContinue
 

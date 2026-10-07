@@ -40,6 +40,16 @@ env:
   BUILD_DIR: build-uwp
   DIST_DIR: dist
   CONAN_HOME: C:\ror-uwp\conan2
+  # Strictly non-interactive: no tool may wait for input (credentials, telemetry, prompts).
+  GIT_TERMINAL_PROMPT: "0"
+  GCM_INTERACTIVE: never
+  PIP_NO_INPUT: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  CONAN_NON_INTERACTIVE: "1"
+  MSBUILDDISABLENODEREUSE: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  VSCMD_SKIP_SENDTELEMETRY: "1"
 
 jobs:
   uwp-x64:
@@ -47,7 +57,7 @@ jobs:
     # windows-2022 = Visual Studio 2022 with the "Universal Windows Platform development" workload
     # (UWP C++ tools, VCLibs framework appx, makeappx/makepri/signtool) preinstalled.
     runs-on: windows-2022
-    timeout-minutes: 300
+    timeout-minutes: 240
     defaults:
       run:
         shell: pwsh
@@ -65,8 +75,8 @@ jobs:
 
       - name: Install Conan
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "conan>=2.10,<3"
+          python -m pip install --no-input --upgrade pip
+          python -m pip install --no-input "conan>=2.10,<3"
           conan --version
 
       - name: Developer command prompt (x64)
@@ -92,10 +102,11 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.DEPS_PREFIX }}
-          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'tools/xbox/ci-common.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
+          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
 
       - name: Build UWP dependencies (zlib, zziplib, freetype, OGRE, MyGUI, openal-soft, Caelum, PagedGeometry)
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 120
         run: ./tools/xbox/build-deps.ps1 -Prefix "$env:DEPS_PREFIX" -Work "$env:DEPS_WORK"
 
       # Saved immediately (not in the post-job phase) so later failures in the RoR build do not
@@ -105,7 +116,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ env.DEPS_PREFIX }}
-          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'tools/xbox/ci-common.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
+          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
 
       - name: Cache Conan packages
         uses: actions/cache@v6
@@ -117,11 +128,16 @@ jobs:
         run: |
           conan profile detect --force
           conan remote add rigs-of-rods-deps https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ -f
+          # Conan 2: never ask questions (e.g. on remotes/credentials); fail instead.
+          $gconf = Join-Path $env:CONAN_HOME "global.conf"
+          Add-Content -Path $gconf -Value "core:non_interactive=True"
+          Add-Content -Path $gconf -Value "core.net.http:timeout=120"
 
       # ------------------------------------------------------------------------------------------
       # Rigs of Rods
       # ------------------------------------------------------------------------------------------
       - name: Configure (WindowsStore, x64, Release)
+        timeout-minutes: 60
         run: |
           . ./tools/xbox/ci-common.ps1
           $prefix = "$env:DEPS_PREFIX" -replace '\\','/'
@@ -140,14 +156,16 @@ jobs:
             "-DROR_CREATE_CONTENT_FOLDER=ON",
             "-DROR_BUILD_INSTALLER=Off"
           )
-          Invoke-Logged "configure RoR" { cmake @cfg }
+          Invoke-Logged "configure RoR" { cmake @cfg } -TimeoutMinutes 50
 
       - name: Build
+        timeout-minutes: 120
         run: |
           . ./tools/xbox/ci-common.ps1
-          Invoke-Logged "build RoR" { cmake --build "$env:BUILD_DIR" --config Release --parallel -- /m /p:CL_MPCount=2 /v:minimal /nologo }
+          Invoke-Logged "build RoR" { cmake --build "$env:BUILD_DIR" --config Release --parallel -- /m /nr:false /p:CL_MPCount=2 /v:minimal /nologo } -TimeoutMinutes 110
 
       - name: Package (makeappx + signtool)
+        timeout-minutes: 30
         env:
           PFX_B64: ${{ secrets.XBOX_SIGNING_PFX_BASE64 }}
           PFX_PASSWORD: ${{ secrets.XBOX_SIGNING_PFX_PASSWORD }}
