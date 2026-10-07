@@ -23,6 +23,9 @@ if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif ()
 
 set(ROR_PLATFORM_UWP ON)
+
+# The runner/desktop OpenSSL is a Win32 build and must never leak into the UWP link.
+set(CMAKE_DISABLE_FIND_PACKAGE_OpenSSL TRUE)
 message(STATUS "RoR: UWP / Xbox Dev Mode build (SDK ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION})")
 
 # UWP requires the dynamic CRT (VCLibs framework package).

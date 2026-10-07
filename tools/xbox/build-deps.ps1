@@ -134,7 +134,32 @@ Build-CMake "mygui" $mygui @(
     "-DMYGUI_BUILD_TEST_APP=OFF", "-DMYGUI_INSTALL_MEDIA=OFF",
     "-DOGRE_DIR=$ogreCMakeDir", "-DCMAKE_CXX_FLAGS_INIT=/DMYGUI_UWP")
 
-# 6) Optional components: failures are reported but do not stop the pipeline. RoR's CMake turns the
+# 6) Networking - required: current RoR sources do not compile without USE_SOCKETW / USE_CURL.
+#    SocketW: plain Winsock (allowed in UWP with the internetClient capability), no OpenSSL.
+$sw = Get-Source "socketw" "https://github.com/RigsOfRods/socketw.git"
+Build-CMake "socketw" $sw @(
+    "-DBUILD_SHARED_LIBS=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE",
+    "-DCMAKE_CXX_FLAGS_INIT=/D_WINSOCK_DEPRECATED_NO_WARNINGS")
+
+#    libcurl: Schannel TLS (curl detects WINAPI_FAMILY_APP as CURL_WINDOWS_APP). If Schannel is
+#    refused by the UWP API set, retry without TLS so that RoR still compiles (https disabled).
+$curl = Get-Source "curl" "https://github.com/curl/curl.git" "curl-8_10_1"
+$curlCommon = @(
+    "-DBUILD_SHARED_LIBS=ON", "-DBUILD_CURL_EXE=OFF", "-DBUILD_TESTING=OFF", "-DBUILD_LIBCURL_DOCS=OFF",
+    "-DBUILD_MISC_DOCS=OFF", "-DENABLE_CURL_MANUAL=OFF", "-DCURL_USE_LIBPSL=OFF", "-DCURL_USE_LIBSSH2=OFF",
+    "-DUSE_NGHTTP2=OFF", "-DUSE_LIBIDN2=OFF", "-DCURL_BROTLI=OFF", "-DCURL_ZSTD=OFF", "-DCURL_DISABLE_LDAP=ON",
+    "-DENABLE_UNICODE=OFF", "-DCURL_ZLIB=ON", "-DCURL_USE_OPENSSL=OFF",
+    "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE")
+try {
+    Build-CMake "curl" $curl ($curlCommon + @("-DCURL_USE_SCHANNEL=ON"))
+} catch {
+    Write-Host "::warning title=curl::Schannel build failed for UWP, retrying without TLS: $($_.Exception.Message)"
+    Write-Host "::endgroup::"
+    Remove-Item -Recurse -Force (Join-Path $Work "build\curl") -ErrorAction SilentlyContinue
+    Build-CMake "curl" $curl ($curlCommon + @("-DCURL_USE_SCHANNEL=OFF", "-DCURL_ENABLE_SSL=OFF"))
+}
+
+# 7) Optional components: failures are reported but do not stop the pipeline. RoR's CMake turns the
 #    matching ROR_USE_* option OFF when the package is missing (cmake_dependent_option).
 function Build-Optional([string] $name, [scriptblock] $body) {
     try { & $body }
