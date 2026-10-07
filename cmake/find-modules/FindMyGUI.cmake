@@ -39,7 +39,7 @@
 find_path(MyGUI_INCLUDE_DIR MyGUI.h PATH_SUFFIXES MYGUI)
 
 # Find release libraries
-find_library(MyGUI_MyGUIEngine_LIBRARY_REL MyGUIEngine PATH_SUFFIXES release relwithdebinfo minsizerel)
+find_library(MyGUI_MyGUIEngine_LIBRARY_REL NAMES MyGUIEngine MyGUIEngineStatic PATH_SUFFIXES release relwithdebinfo minsizerel) # *Static: MYGUI_STATIC builds (UWP)
 find_library(MyGUI_OgrePlatform_LIBRARY_REL MyGUI.OgrePlatform PATH_SUFFIXES release relwithdebinfo minsizerel)
 
 # Find debug libraries

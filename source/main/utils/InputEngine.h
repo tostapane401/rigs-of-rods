@@ -472,6 +472,9 @@ public:
 
     /// @name Setup
     /// @{
+#if defined(ROR_PLATFORM_UWP)
+    void                SetupXboxDevices();   //!< UWP/Xbox: native devices instead of OIS DirectInput backend
+#endif
     void                SetKeyboardListener(OIS::KeyListener* obj);
     OIS::Keyboard*      GetOisKeyboard() { return mKeyboard; }
     void                SetMouseListener(OIS::MouseListener* obj);

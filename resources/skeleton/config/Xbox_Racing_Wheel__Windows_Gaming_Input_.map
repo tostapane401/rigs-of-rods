@@ -1,0 +1,44 @@
+; -------------------------------------------
+; Xbox racing wheel (Windows.Gaming.Input RacingWheel), UWP / Xbox Dev Mode
+; Device name reported by RoR: "Xbox Racing Wheel (Windows.Gaming.Input)"
+;
+; Axes:
+;  0 = wheel        (-1 left .. +1 right)
+;  1 = brake        (released = +MAX, pressed = -MAX -> use REVERSE, like the G27 map)
+;  2 = throttle     (same convention)
+;  3 = clutch       (same convention, 'released' if the wheel has none)
+;  4 = handbrake    (same convention, 'released' if the wheel has none)
+; Buttons (RacingWheelButtons bit index):
+;  0 = PreviousGear (left paddle)   1 = NextGear (right paddle)
+;  2..5 = D-pad Up/Down/Left/Right  6..21 = Button1..Button16 (vendor specific)
+;  22..29 = H-shifter gears 1..8    30 = H-shifter reverse
+; Button numbering of Button1..16 varies per wheel model: adjust in-game (Settings > Controls).
+; -------------------------------------------
+
+TRUCK_STEER_LEFT               JoystickAxis         0 0 LOWER+DEADZONE=0.00+LINEARITY=0.70
+TRUCK_STEER_RIGHT              JoystickAxis         0 0 UPPER+DEADZONE=0.00+LINEARITY=0.70
+TRUCK_ACCELERATE               JoystickAxis         0 2 REVERSE+DEADZONE=0.05
+TRUCK_BRAKE                    JoystickAxis         0 1 REVERSE+DEADZONE=0.05
+TRUCK_MANUAL_CLUTCH            JoystickAxis         0 3 REVERSE+DEADZONE=0.05
+TRUCK_PARKING_BRAKE            JoystickAxis         0 4 REVERSE+DIGITAL
+
+TRUCK_SHIFT_DOWN               JoystickButton       0 0
+TRUCK_SHIFT_UP                 JoystickButton       0 1
+TRUCK_SHIFT_GEAR1              JoystickButton       0 22
+TRUCK_SHIFT_GEAR2              JoystickButton       0 23
+TRUCK_SHIFT_GEAR3              JoystickButton       0 24
+TRUCK_SHIFT_GEAR4              JoystickButton       0 25
+TRUCK_SHIFT_GEAR5              JoystickButton       0 26
+TRUCK_SHIFT_GEAR6              JoystickButton       0 27
+TRUCK_SHIFT_GEAR_REVERSE       JoystickButton       0 30
+
+TRUCK_HORN                     JoystickButton       0 6
+TRUCK_STARTER                  JoystickButton       0 7
+TRUCK_TOGGLE_CONTACT           JoystickButton       0 8
+TRUCK_SWITCH_SHIFT_MODES       JoystickButton       0 9
+COMMON_ENTER_OR_EXIT_TRUCK     JoystickButton       0 10
+COMMON_LOCK                    JoystickButton       0 11
+TRUCK_BLINK_LEFT               JoystickButton       0 4
+TRUCK_BLINK_RIGHT              JoystickButton       0 5
+COMMON_TOGGLE_TRUCK_LOW_BEAMS  JoystickButton       0 2
+CAMERA_CHANGE                  JoystickButton       0 3

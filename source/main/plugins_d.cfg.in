@@ -4,12 +4,12 @@
 PluginFolder=@PLUGINS_FOLDER@
 
 # Define plugins
-Plugin=Codec_FreeImage_d
+Plugin=@CFG_CODEC_PLUGIN@_d
 @CFG_COMMENT_RENDERSYSTEM_D3D9@Plugin=RenderSystem_Direct3D9_d
 @CFG_COMMENT_RENDERSYSTEM_D3D11@Plugin=RenderSystem_Direct3D11_d
 @CFG_COMMENT_RENDERSYSTEM_GL@Plugin=RenderSystem_GL_d
 @CFG_COMMENT_RENDERSYSTEM_GL3PLUS@Plugin=RenderSystem_GL3Plus_d
 Plugin=Plugin_ParticleFX_d
 Plugin=Plugin_OctreeSceneManager_d
-Plugin=Plugin_CgProgramManager_d
+@CFG_COMMENT_PLUGIN_CG@Plugin=Plugin_CgProgramManager_d
 @CFG_OGRE_PLUGIN_CAELUM_D@

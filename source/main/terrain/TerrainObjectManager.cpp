@@ -802,7 +802,7 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         }
     }
 
-    if (odef->mat_name_generate != "")
+    if (odef->mat_name_generate != "" && Ogre::RTShader::ShaderGenerator::getSingletonPtr() != nullptr)
     {
         Ogre::MaterialPtr mat = Ogre::MaterialManager::getSingleton().create(odef->mat_name_generate,"generatedMaterialShaders");
         Ogre::RTShader::ShaderGenerator::getSingleton().createShaderBasedTechnique(*mat, Ogre::MaterialManager::DEFAULT_SCHEME_NAME, Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);

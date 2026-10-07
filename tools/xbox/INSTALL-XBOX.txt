@@ -1,0 +1,29 @@
+Rigs of Rods - build UWP per Xbox (Dev Mode)
+============================================
+
+Contenuto della cartella
+  RigsOfRods_<versione>_x64.msix        pacchetto del gioco (firmato)
+  RigsOfRods_<versione>.msixbundle      stesso pacchetto in formato bundle
+  Microsoft.VCLibs.x64.14.00.appx       dipendenza obbligatoria (runtime C++)
+  RigsOfRods-dev.cer                    certificato pubblico (serve solo per installare su PC)
+
+Installazione su Xbox in Dev Mode (dal telefono o dal PC, stessa rete della console)
+  1. Sulla console: Dev Home > abilita "Remote Access" (Device Portal) e annota l'indirizzo https://<ip>:11443
+  2. Apri l'indirizzo nel browser, accetta il certificato e fai login con le credenziali impostate in Dev Home
+  3. Home > "Add" (Aggiungi) > seleziona il file .msix (o .msixbundle)
+  4. Nella pagina successiva aggiungi come dipendenza Microsoft.VCLibs.x64.14.00.appx > Install
+  5. IMPORTANTE: in Dev Home seleziona l'app > "View details" > App type = Game
+     (come "App" avrebbe solo 1 GB di RAM e una quota ridotta di GPU; come "Game" ne ha 5 GB, 4 core esclusivi e tutta la GPU)
+
+Dove salva i dati il gioco (sandbox UWP)
+  LocalState\RigsOfRods\        config\ (RoR.cfg, ogre.cfg, *.map), mods\, savegames\, logs\RoR.log ...
+  LocalCache\                    modcache, shaders\ (cache RTSS + microcode D3D)
+  Accessibili da Device Portal > File explorer > LocalAppData > <pacchetto>.
+
+Contenuti (veicoli, mappe)
+  Il pacchetto contiene solo le risorse di base. Carica i content pack (.zip) in
+  LocalState\RigsOfRods\mods\ tramite Device Portal > File explorer, poi riavvia il gioco
+  (la mod cache viene ricostruita al primo avvio).
+
+Log in caso di crash
+  LocalState\RigsOfRods\logs\RoR.log  -> cerca righe "[RoR|RTSS]" e "D3D11 HLSL"

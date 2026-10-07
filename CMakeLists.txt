@@ -124,6 +124,9 @@ ELSEIF (UNIX)
     set(CMAKE_MODULE_LINKER_FLAGS_DEBUG "${CMAKE_MODULE_LINKER_FLAGS_DEBUG} -Og -ggdb")
 endif (WIN32)
 
+# UWP / Xbox Dev Mode (CMAKE_SYSTEM_NAME=WindowsStore): sets ROR_PLATFORM_UWP, builds OIS core.
+include(XboxUWP)
+
 include(DependenciesConfig)
 
 ################################################################################

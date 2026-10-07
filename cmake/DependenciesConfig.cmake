@@ -6,7 +6,9 @@ find_package(Threads REQUIRED)
 find_package(OGRE 1.11 REQUIRED COMPONENTS Bites Overlay Paging RTShaderSystem MeshLodGenerator Terrain)
 
 # --- Object Oriented Input System ---
-find_package(OIS REQUIRED)
+if (NOT ROR_PLATFORM_UWP) # UWP: ois::ois = portable OIS core built by cmake/XboxUWP.cmake
+    find_package(OIS REQUIRED)
+endif ()
 
 # --- MyGUI - graphical user inferface ---
 find_package(MyGUI REQUIRED)

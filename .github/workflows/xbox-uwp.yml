@@ -1,0 +1,196 @@
+---
+# Rigs of Rods - UWP build for Xbox (Dev Mode sideloading)
+#
+# Produces a downloadable artifact "ror-xbox-uwp-<run>" with:
+#   RigsOfRods_<ver>_x64.msix, RigsOfRods_<ver>.msixbundle, Microsoft.VCLibs.x64.14.00.appx,
+#   RigsOfRods-dev.cer, INSTALL-XBOX.txt
+#
+# Start it from the phone: GitHub app / github.com > Actions > "Xbox UWP build" > Run workflow.
+#
+# Optional repository secrets (Settings > Secrets and variables > Actions):
+#   XBOX_SIGNING_PFX_BASE64   base64 of a code-signing .pfx  (stable identity -> updates install in place)
+#   XBOX_SIGNING_PFX_PASSWORD its password
+#   XBOX_PUBLISHER            certificate subject, e.g. "CN=YourName" (must match the .pfx)
+# Without them a throw-away self-signed certificate is generated on every run (Dev Mode accepts it,
+# but you must uninstall the previous build before installing a new one).
+
+name: Xbox UWP build
+
+on:
+  workflow_dispatch:
+    inputs:
+      rebuild_deps:
+        description: "Ignore the dependency cache and rebuild OGRE/MyGUI/... from source"
+        type: boolean
+        default: false
+  push:
+    branches: [ "xbox-port" ]
+    tags: [ "xbox-v*" ]
+
+concurrency:
+  group: xbox-uwp-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DEPS_PREFIX: C:\ror-uwp\prefix
+  DEPS_WORK: C:\ror-uwp\work
+  BUILD_DIR: build-uwp
+  DIST_DIR: dist
+  CONAN_HOME: C:\ror-uwp\conan2
+
+jobs:
+  uwp-x64:
+    name: UWP x64 (Xbox Dev Mode)
+    # windows-2022 = Visual Studio 2022 with the "Universal Windows Platform development" workload
+    # (UWP C++ tools, VCLibs framework appx, makeappx/makepri/signtool) preinstalled.
+    runs-on: windows-2022
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Python + Conan 2
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "conan>=2.10,<3"
+          conan --version
+
+      - name: Developer command prompt (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          uwp: true
+
+      - name: Show toolchain
+        run: |
+          cmake --version
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Write-Host "Visual Studio: $vs"
+          Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory | Select-Object -ExpandProperty Name
+
+      # ------------------------------------------------------------------------------------------
+      # Dependency prefix (OGRE 1.11.6 & co. for WindowsStore). Slow (~40-60 min) -> cached.
+      # The key changes whenever the recipe (script/toolchain) changes.
+      # ------------------------------------------------------------------------------------------
+      - name: Cache UWP dependency prefix
+        id: deps-cache
+        if: ${{ !inputs.rebuild_deps }}
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: uwp-deps-v1-${{ hashFiles('tools/xbox/build-deps.ps1', 'cmake/toolchains/WindowsStore-x64.cmake') }}
+
+      - name: Build UWP dependencies (zlib, zziplib, freetype, OGRE, MyGUI, openal-soft, Caelum, PagedGeometry)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: ./tools/xbox/build-deps.ps1 -Prefix "$env:DEPS_PREFIX" -Work "$env:DEPS_WORK"
+
+      - name: Cache Conan packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CONAN_HOME }}
+          key: conan-uwp-v1-${{ hashFiles('conanfile.py', 'cmake/conan_provider.cmake') }}
+
+      - name: Conan setup
+        run: |
+          conan profile detect --force
+          conan remote add rigs-of-rods-deps https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ -f
+
+      # ------------------------------------------------------------------------------------------
+      # Rigs of Rods
+      # ------------------------------------------------------------------------------------------
+      - name: Configure (WindowsStore, x64, Release)
+        run: |
+          $prefix = "$env:DEPS_PREFIX" -replace '\\','/'
+          $ogreDir = @("$env:DEPS_PREFIX\CMake", "$env:DEPS_PREFIX\lib\OGRE\cmake") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          cmake -S . -B "$env:BUILD_DIR" `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/WindowsStore-x64.cmake `
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake `
+            -DCONAN_INSTALL_ARGS="--build=missing" `
+            -DROR_DEPENDENCY_DIR="$prefix" `
+            -DOGRE_DIR="$($ogreDir -replace '\\','/')" `
+            -DROR_CREATE_CONTENT_FOLDER=ON `
+            -DROR_BUILD_INSTALLER=Off
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+
+      - name: Build
+        run: |
+          cmake --build "$env:BUILD_DIR" --config Release --parallel -- /m /p:CL_MPCount=2 /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+
+      - name: Package (makeappx + signtool)
+        env:
+          PFX_B64: ${{ secrets.XBOX_SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.XBOX_SIGNING_PFX_PASSWORD }}
+          PUBLISHER: ${{ secrets.XBOX_PUBLISHER }}
+        run: |
+          # Version: <ROR year>.<month>.<run number>.0 (each field <= 65535)
+          $proj = Select-String -Path CMakeLists.txt -Pattern 'project\(\$\{PROJECT_NAME_UNDERSCORE\} VERSION ([0-9]+)\.([0-9]+)\)'
+          $major = [int]$proj.Matches[0].Groups[1].Value
+          $minor = [int]$proj.Matches[0].Groups[2].Value
+          $version = "$major.$minor.$([int]$env:GITHUB_RUN_NUMBER % 65535).0"
+
+          $pkgArgs = @{
+            BinDir     = "$env:BUILD_DIR\bin"
+            DepsPrefix = "$env:DEPS_PREFIX"
+            OutDir     = "$env:DIST_DIR"
+            Version    = $version
+          }
+          if ($env:PFX_B64) {
+            $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+            $pkgArgs.Pfx = $pfx
+            $pkgArgs.PfxPassword = $env:PFX_PASSWORD
+            if ($env:PUBLISHER) { $pkgArgs.Publisher = $env:PUBLISHER }
+          }
+          ./tools/xbox/package-msix.ps1 @pkgArgs
+          "PKG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload Xbox package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ror-xbox-uwp-${{ env.PKG_VERSION }}
+          path: ${{ env.DIST_DIR }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0   # .msix is already compressed
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ror-xbox-uwp-logs-${{ github.run_number }}
+          path: |
+            ${{ env.BUILD_DIR }}/CMakeFiles/CMakeOutput.log
+            ${{ env.BUILD_DIR }}/CMakeFiles/CMakeError.log
+            ${{ env.BUILD_DIR }}/CMakeCache.txt
+            ${{ env.DEPS_WORK }}/build/**/CMakeFiles/CMakeError.log
+            ${{ env.DEPS_WORK }}/build/**/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Summary
+        if: success()
+        run: |
+          @"
+          ## Xbox UWP package ready :video_game:
+          Version **$env:PKG_VERSION** - download the artifact **ror-xbox-uwp-$env:PKG_VERSION** from this run.
+
+          1. Xbox Dev Home > Remote Access > open ``https://<console-ip>:11443`` on the phone
+          2. Add > ``RigsOfRods_*_x64.msix`` + dependency ``Microsoft.VCLibs.x64.14.00.appx`` > Install
+          3. Dev Home > the app > View details > **App type = Game**
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

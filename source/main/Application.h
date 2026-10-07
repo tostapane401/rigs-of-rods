@@ -716,6 +716,7 @@ extern CVar* sys_process_dir;
 extern CVar* sys_user_dir;
 extern CVar* sys_config_dir;
 extern CVar* sys_cache_dir;
+extern CVar* sys_shader_cache_dir;   //!< Writable cache for RTSS-generated shaders + D3D microcode (UWP: LocalCacheFolder)
 extern CVar* sys_thumbnails_dir;
 extern CVar* sys_logs_dir;
 extern CVar* sys_resources_dir;

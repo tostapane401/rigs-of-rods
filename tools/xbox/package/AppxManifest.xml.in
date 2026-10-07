@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rigs of Rods - UWP package manifest (Xbox Dev Mode sideloading).
+  Placeholders @...@ are filled by tools/xbox/package-msix.ps1.
+  Publisher MUST match the Subject of the signing certificate exactly.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  IgnorableNamespaces="uap">
+
+  <Identity Name="@IDENTITY_NAME@"
+            Publisher="@PUBLISHER@"
+            Version="@VERSION@"
+            ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Rigs of Rods</DisplayName>
+    <PublisherDisplayName>Rigs of Rods community build</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!-- Windows.Universal: the same package runs on Xbox (Dev Mode) and on Windows 10/11 for testing. -->
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+    <!-- Dynamic CRT. The matching Microsoft.VCLibs.x64.14.00.appx is shipped next to the .msix. -->
+    <PackageDependency Name="Microsoft.VCLibs.140.00"
+                       MinVersion="@VCLIBS_MINVERSION@"
+                       Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App" Executable="RoR.exe" EntryPoint="RoR.App">
+      <uap:VisualElements
+        DisplayName="Rigs of Rods"
+        Description="Soft-body physics vehicle simulator"
+        BackgroundColor="#181c24"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#181c24" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Multiplayer (SocketW) and the in-game repository browser (cURL), when built. -->
+    <Capability Name="internetClient" />
+  </Capabilities>
+</Package>

@@ -20,6 +20,9 @@
 */
 
 #include "InputEngine.h"
+#if defined(ROR_PLATFORM_UWP)
+#   include "XboxInput.h"
+#endif
 
 #include "Actor.h"
 #include "AppContext.h"
@@ -441,6 +444,18 @@ InputEngine::~InputEngine()
 
 void InputEngine::destroy()
 {
+#if defined(ROR_PLATFORM_UWP)
+    // Native Xbox devices (XboxInput.h) are owned directly, there is no OIS::InputManager.
+    delete mMouse;    mMouse = nullptr;
+    delete mKeyboard; mKeyboard = nullptr;
+    for (int i = 0; i < MAX_JOYSTICKS; i++)
+    {
+        delete mJoy[i];
+        mJoy[i] = nullptr;
+    }
+    mForceFeedback = nullptr; // owned by the wheel joystick
+    free_joysticks = 0;
+#else
     if (mInputManager)
     {
         LOG("*** Terminating OIS ***");
@@ -468,10 +483,14 @@ void InputEngine::destroy()
         OIS::InputManager::destroyInputSystem(mInputManager);
         mInputManager = 0;
     }
+#endif // ROR_PLATFORM_UWP
 }
 
 void InputEngine::setup()
 {
+#if defined(ROR_PLATFORM_UWP)
+    this->SetupXboxDevices();
+#else
     size_t hWnd = 0;
     App::GetAppContext()->GetRenderWindow()->getCustomAttribute("WINDOW", &hWnd);
 
@@ -601,7 +620,47 @@ void InputEngine::setup()
         this->loadConfigFile(i);
     }
     completeMissingEvents();
+#endif // ROR_PLATFORM_UWP
 }
+
+#if defined(ROR_PLATFORM_UWP)
+void InputEngine::SetupXboxDevices()
+{
+    LOG("*** Initializing native Xbox input (Windows.Gaming.Input + CoreWindow) ***");
+    destroy();
+    XboxInput::Startup();
+
+    mKeyboard = new XboxInput::CoreWindowKeyboard(0);
+    mKeyboard->_initialize();
+    mMouse = new XboxInput::CoreWindowMouse(0);
+    mMouse->_initialize();
+
+    // Fixed slots, hot-plug safe (controllers enumerate asynchronously after launch):
+    //   0 = gamepad (reuses Controller__Xbox_360_Wireless_Receiver_for_Windows_.map)
+    //   1 = racing wheel (Xbox_Racing_Wheel__Windows_Gaming_Input_.map)
+    free_joysticks = 0;
+    mJoy[free_joysticks] = new XboxInput::GamepadJoyStick(free_joysticks);
+    mJoy[free_joysticks]->_initialize();
+    free_joysticks++;
+    mJoy[free_joysticks] = new XboxInput::RacingWheelJoyStick(free_joysticks);
+    mJoy[free_joysticks]->_initialize();
+    mForceFeedback = (OIS::ForceFeedback*)mJoy[free_joysticks]->queryInterface(OIS::Interface::ForceFeedback);
+    free_joysticks++;
+
+    for (int i = 0; i < free_joysticks; i++)
+    {
+        joyState[i] = mJoy[i]->getJoyStickState();
+        LOG("Creating Joystick " + TOSTRING(i + 1) + " (" + mJoy[i]->vendor() + ")");
+    }
+
+    this->loadConfigFile(-1);
+    for (int i = 0; i < free_joysticks; ++i)
+    {
+        this->loadConfigFile(i);
+    }
+    completeMissingEvents();
+}
+#endif // ROR_PLATFORM_UWP
 
 OIS::MouseState InputEngine::getMouseState()
 {

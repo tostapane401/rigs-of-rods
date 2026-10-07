@@ -20,6 +20,7 @@
 */
 
 #include "GfxScene.h"
+#include "RTShaderBootstrap.h"
 
 #include "AppContext.h"
 #include "Actor.h"
@@ -86,6 +87,7 @@ void GfxScene::Init()
 {
     ROR_ASSERT(!m_scene_manager);
     m_scene_manager = App::GetAppContext()->GetOgreRoot()->createSceneManager();
+    RTShaderBootstrap::Get().AttachSceneManager(m_scene_manager); // no-op when RTSS is inactive
     m_gfx_freebeams_grouping_node = m_scene_manager->getRootSceneNode()->createChildSceneNode("FreeBeam Visuals");
 
     m_skidmark_conf.LoadDefaultSkidmarkDefs();

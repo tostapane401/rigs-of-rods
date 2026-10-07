@@ -1,0 +1,154 @@
+<#
+.SYNOPSIS
+    Builds the Rigs of Rods dependency stack for UWP / Xbox Dev Mode (x64, Release) into a prefix.
+
+.DESCRIPTION
+    Everything is compiled with CMAKE_SYSTEM_NAME=WindowsStore (cmake/toolchains/WindowsStore-x64.cmake)
+    and the dynamic CRT, so it can be loaded inside the UWP AppContainer:
+
+      zlib 1.3.1 -> zziplib 0.13.72 -> freetype 2.13.2 -> OGRE 1.11.6 (D3D11 only, STBI codec, no Cg)
+      -> MyGUI 3.4.0 (Ogre platform, static, no plugins, Win32 clipboard compiled out)
+      -> openal-soft 1.24.3 (has native UWP support)            [optional]
+      -> Caelum / PagedGeometry (RigsOfRods forks)                [optional]
+
+    fmt, rapidjson and angelscript are NOT built here: they come from Conan (conanfile.py,
+    WindowsStore branch) through cmake/conan_provider.cmake when RoR itself is configured.
+
+.PARAMETER Prefix
+    Install prefix (becomes ROR_DEPENDENCY_DIR for the RoR configure step).
+
+.PARAMETER Work
+    Scratch folder for sources and build trees.
+#>
+param(
+    [Parameter(Mandatory = $true)][string] $Prefix,
+    [Parameter(Mandatory = $true)][string] $Work,
+    [string] $Generator = "Visual Studio 17 2022"
+)
+
+$ErrorActionPreference = "Stop"
+$RoRRoot   = (Resolve-Path "$PSScriptRoot\..\..").Path
+$Toolchain = Join-Path $RoRRoot "cmake\toolchains\WindowsStore-x64.cmake"
+New-Item -ItemType Directory -Force -Path $Prefix, $Work | Out-Null
+$Prefix = (Resolve-Path $Prefix).Path
+$Work   = (Resolve-Path $Work).Path
+$PrefixFwd = $Prefix -replace '\\', '/'
+
+function Invoke-Native([string] $what, [scriptblock] $cmd) {
+    & $cmd
+    if ($LASTEXITCODE -ne 0) { throw "$what failed with exit code $LASTEXITCODE" }
+}
+
+function Get-Source([string] $name, [string] $url, [string] $tag = "") {
+    $dir = Join-Path $Work "src\$name"
+    if (-not (Test-Path $dir)) {
+        if ($tag) { Invoke-Native "git clone $name" { git clone --quiet --depth 1 --branch $tag $url $dir } }
+        else      { Invoke-Native "git clone $name" { git clone --quiet --depth 1 $url $dir } }
+    }
+    return $dir
+}
+
+function Build-CMake([string] $name, [string] $src, [string[]] $extra) {
+    Write-Host "::group::$name"
+    $bld = Join-Path $Work "build\$name"
+    $cfg = @(
+        "-S", $src, "-B", $bld,
+        "-G", $Generator, "-A", "x64",
+        "-DCMAKE_TOOLCHAIN_FILE=$Toolchain",
+        "-DCMAKE_INSTALL_PREFIX=$PrefixFwd",
+        "-DCMAKE_PREFIX_PATH=$PrefixFwd",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"   # CMake 4.x vs. old cmake_minimum_required()
+    ) + $extra
+    Invoke-Native "configure $name" { cmake @cfg }
+    Invoke-Native "build $name"     { cmake --build $bld --config Release --parallel --target INSTALL }
+    Write-Host "::endgroup::"
+}
+
+# -------------------------------------------------------------------------------------------------
+# 1) zlib
+$zlib = Get-Source "zlib" "https://github.com/madler/zlib.git" "v1.3.1"
+Build-CMake "zlib" $zlib @("-DZLIB_BUILD_EXAMPLES=OFF")
+
+# 2) zziplib (static, /MD)
+$zz = Get-Source "zziplib" "https://github.com/gdraheim/zziplib.git" "v0.13.72"
+Build-CMake "zziplib" $zz @(
+    "-DBUILD_SHARED_LIBS=OFF", "-DBUILD_STATIC_LIBS=ON", "-DMSVC_STATIC_RUNTIME=OFF",
+    "-DZZIPMMAPPED=OFF", "-DZZIPFSEEKO=OFF", "-DZZIPWRAP=OFF", "-DZZIPSDL=OFF",
+    "-DZZIPBINS=OFF", "-DZZIPTEST=OFF", "-DZZIPDOCS=OFF", "-DZZIP_COMPAT=OFF",
+    "-DZZIP_LIBTOOL=OFF", "-DZZIP_PKGCONFIG=OFF", "-DBUILD_TESTS=OFF")
+$zzipLib = Get-ChildItem -Path "$Prefix\lib" -Filter "zzip*.lib" | Where-Object { $_.Name -notmatch "fseeko|mmapped" } | Select-Object -First 1
+if (-not $zzipLib) { throw "zziplib: no zzip*.lib installed in $Prefix\lib" }
+
+# 3) freetype (static, no optional codecs)
+$ft = Get-Source "freetype" "https://github.com/freetype/freetype.git" "VER-2-13-2"
+Build-CMake "freetype" $ft @(
+    "-DBUILD_SHARED_LIBS=OFF", "-DFT_DISABLE_HARFBUZZ=ON", "-DFT_DISABLE_PNG=ON",
+    "-DFT_DISABLE_BZIP2=ON", "-DFT_DISABLE_BROTLI=ON", "-DFT_DISABLE_ZLIB=ON")
+
+# 4) OGRE 1.11.6 - D3D11 only. WINDOWS_STORE makes OGRE build D3D11RenderWindowCoreWindow (C++/CX, /ZW
+#    is set by OGRE's own CMake via VS_WINRT_COMPONENT) and disables GL/D3D9/Cg automatically.
+$ogre = Get-Source "ogre" "https://github.com/OGRECave/ogre.git" "v1.11.6"
+Build-CMake "ogre" $ogre @(
+    "-DOGRE_BUILD_DEPENDENCIES=OFF", "-DOGRE_DEPENDENCIES_DIR=$PrefixFwd",
+    "-DZZip_INCLUDE_DIR=$PrefixFwd/include", "-DZZip_LIBRARY_REL=$($zzipLib.FullName -replace '\\','/')",
+    "-DOGRE_STATIC=OFF", "-DOGRE_RESOURCEMANAGER_STRICT=0", "-DOGRE_CONFIG_ENABLE_ZIP=ON",
+    "-DOGRE_BUILD_RENDERSYSTEM_D3D11=ON", "-DOGRE_BUILD_RENDERSYSTEM_D3D9=OFF",
+    "-DOGRE_BUILD_RENDERSYSTEM_GL=OFF", "-DOGRE_BUILD_RENDERSYSTEM_GL3PLUS=OFF", "-DOGRE_BUILD_RENDERSYSTEM_GLES2=OFF",
+    "-DOGRE_BUILD_PLUGIN_CG=OFF", "-DOGRE_BUILD_PLUGIN_FREEIMAGE=OFF", "-DOGRE_BUILD_PLUGIN_EXRCODEC=OFF",
+    "-DOGRE_BUILD_PLUGIN_STBI=ON", "-DOGRE_BUILD_PLUGIN_BSP=OFF", "-DOGRE_BUILD_PLUGIN_PCZ=OFF",
+    "-DOGRE_BUILD_PLUGIN_OCTREE=ON", "-DOGRE_BUILD_PLUGIN_PFX=ON",
+    "-DOGRE_BUILD_COMPONENT_RTSHADERSYSTEM=ON", "-DOGRE_BUILD_RTSHADERSYSTEM_CORE_SHADERS=ON",
+    "-DOGRE_BUILD_RTSHADERSYSTEM_EXT_SHADERS=ON",
+    "-DOGRE_BUILD_COMPONENT_PYTHON=OFF", "-DOGRE_BUILD_COMPONENT_JAVA=OFF", "-DOGRE_BUILD_COMPONENT_CSHARP=OFF",
+    "-DOGRE_BUILD_COMPONENT_VOLUME=OFF", "-DOGRE_BUILD_COMPONENT_PROPERTY=OFF", "-DOGRE_BUILD_COMPONENT_HLMS=OFF",
+    "-DOGRE_BUILD_SAMPLES=OFF", "-DOGRE_BUILD_TOOLS=OFF", "-DOGRE_BUILD_TESTS=OFF",
+    "-DOGRE_INSTALL_SAMPLES=OFF", "-DOGRE_INSTALL_DOCS=OFF", "-DOGRE_INSTALL_PDB=OFF")
+
+$ogreCMakeDir = @("$Prefix\CMake", "$Prefix\lib\OGRE\cmake", "$Prefix\share\OGRE\cmake") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $ogreCMakeDir) { throw "OGRE: OGREConfig.cmake not found under $Prefix" }
+$ogreCMakeDir = $ogreCMakeDir -replace '\\', '/'
+
+# 5) MyGUI 3.4.0 - compile the Win32 clipboard integration out (OpenClipboard/GetModuleFileName
+#    are not part of the UWP API set).
+$mygui = Get-Source "mygui" "https://github.com/MyGUI/mygui.git" "MyGUI3.4.0"
+foreach ($f in @("MyGUIEngine\include\MyGUI_ClipboardManager.h", "MyGUIEngine\src\MyGUI_ClipboardManager.cpp", "MyGUIEngine\src\MyGUI_WindowsClipboardHandler.cpp")) {
+    $p = Join-Path $mygui $f
+    $c = Get-Content -Raw $p
+    $c = $c -replace '#if MYGUI_PLATFORM == MYGUI_PLATFORM_WIN32', '#if MYGUI_PLATFORM == MYGUI_PLATFORM_WIN32 && !defined(MYGUI_UWP)'
+    Set-Content -NoNewline -Path $p -Value $c
+}
+Build-CMake "mygui" $mygui @(
+    "-DMYGUI_RENDERSYSTEM=3", "-DMYGUI_STATIC=ON", "-DMYGUI_DISABLE_PLUGINS=ON", "-DMYGUI_USE_FREETYPE=ON",
+    "-DMYGUI_BUILD_DEMOS=OFF", "-DMYGUI_BUILD_TOOLS=OFF", "-DMYGUI_BUILD_PLUGINS=OFF", "-DMYGUI_BUILD_UNITTESTS=OFF",
+    "-DMYGUI_BUILD_TEST_APP=OFF", "-DMYGUI_INSTALL_MEDIA=OFF",
+    "-DOGRE_DIR=$ogreCMakeDir", "-DCMAKE_CXX_FLAGS_INIT=/DMYGUI_UWP")
+
+# 6) Optional components: failures are reported but do not stop the pipeline. RoR's CMake turns the
+#    matching ROR_USE_* option OFF when the package is missing (cmake_dependent_option).
+function Build-Optional([string] $name, [scriptblock] $body) {
+    try { & $body }
+    catch {
+        Write-Host "::warning title=$name::Optional dependency $name failed to build for UWP: $($_.Exception.Message)"
+        Write-Host "::endgroup::"
+    }
+}
+
+Build-Optional "openal-soft" {
+    $oal = Get-Source "openal-soft" "https://github.com/kcat/openal-soft.git" "1.24.3"
+    Build-CMake "openal-soft" $oal @(
+        "-DALSOFT_UTILS=OFF", "-DALSOFT_EXAMPLES=OFF", "-DALSOFT_TESTS=OFF",
+        "-DALSOFT_INSTALL_EXAMPLES=OFF", "-DALSOFT_INSTALL_UTILS=OFF")
+}
+Build-Optional "caelum" {
+    $cae = Get-Source "caelum" "https://github.com/RigsOfRods/ogre-caelum.git"
+    Build-CMake "caelum" $cae @("-DCaelum_BUILD_SAMPLES=OFF", "-DINSTALL_OGRE_PLUGIN=OFF", "-DOGRE_DIR=$ogreCMakeDir")
+}
+Build-Optional "pagedgeometry" {
+    $pg = Get-Source "pagedgeometry" "https://github.com/RigsOfRods/ogre-pagedgeometry.git"
+    Build-CMake "pagedgeometry" $pg @("-DOGRE_DIR=$ogreCMakeDir")
+}
+
+Write-Host "UWP dependency prefix ready: $Prefix"
+Get-ChildItem "$Prefix\bin" -Filter *.dll -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  bin\$($_.Name)" }

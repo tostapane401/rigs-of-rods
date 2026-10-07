@@ -50,6 +50,11 @@
 #include "OutGauge.h"
 #include "OverlayWrapper.h"
 #include "PlatformUtils.h"
+#include "PlatformStorage.h"
+#include "RTShaderBootstrap.h"
+#if defined(ROR_PLATFORM_UWP)
+#   include "UwpApp.h"
+#endif
 #include "RoRVersion.h"
 #include "ScriptEngine.h"
 #include "ServerScriptEngine.h"
@@ -71,7 +76,13 @@
 extern "C" {
 #endif
 
+#if defined(ROR_PLATFORM_UWP)
+// UWP: the process entry point is wWinMain() in platform/uwp/UwpApp.cpp, which runs
+// CoreApplication::Run() and calls this function from IFrameworkView::Run() on the UI thread.
+int RoR_GameMain(int argc, char *argv[])
+#else
 int main(int argc, char *argv[])
+#endif
 {
     using namespace RoR;
 
@@ -101,7 +112,10 @@ int main(int argc, char *argv[])
 
         // User directories
         App::sys_config_dir    ->setStr(PathCombine(App::sys_user_dir->getStr(), "config"));
-        App::sys_cache_dir     ->setStr(PathCombine(App::sys_user_dir->getStr(), "cache"));
+        // Regenerable data goes to the platform cache root (desktop: <user_dir>\cache as before,
+        // UWP: LocalCacheFolder - persistent but excluded from backup).
+        App::sys_cache_dir     ->setStr(PlatformStorage::Get().cache_dir);
+        App::sys_shader_cache_dir->setStr(PathCombine(PlatformStorage::Get().cache_dir, "shaders"));
         App::sys_thumbnails_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "thumbnails"));
         App::sys_savegames_dir ->setStr(PathCombine(App::sys_user_dir->getStr(), "savegames"));
         App::sys_screenshot_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "screenshots"));
@@ -333,6 +347,13 @@ int main(int argc, char *argv[])
         {
             App::GetAppContext()->PrepareProfiler();
             OgreBites::WindowEventUtilities::messagePump();
+#if defined(ROR_PLATFORM_UWP)
+            // Dispatch CoreWindow events (input, focus, visibility, suspend/resume, back button).
+            if (!RoR::Uwp::PumpEvents())
+            {
+                App::GetGameContext()->PushMessage(Message(MSG_APP_SHUTDOWN_REQUESTED));
+            }
+#endif
 
             // Halt physics (wait for async tasks to finish)
             if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
@@ -360,6 +381,7 @@ int main(int argc, char *argv[])
                             App::GetGameContext()->SaveScene("autosave.sav");
                         }
                         App::GetConsole()->saveConfig(); // RoR.cfg
+                        RTShaderBootstrap::Get().SaveMicrocodeCache();
                         App::GetDiscordRpc()->Shutdown();
     #ifdef USE_SOCKETW
                         if (App::mp_state->getEnum<MpState>() == MpState::CONNECTED)

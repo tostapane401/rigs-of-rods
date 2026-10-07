@@ -38,6 +38,9 @@
 #include "OgreImGui.h"
 #include "OverlayWrapper.h"
 #include "PlatformUtils.h"
+#if defined(ROR_PLATFORM_UWP)
+#   include "XboxInput.h"
+#endif
 #include "RTTLayer.h"
 #include "Terrain.h"
 
@@ -333,6 +336,10 @@ void GUIManager::NewImGuiFrame(float dt)
     io.KeyAlt = kb->isKeyDown(OIS::KC_LMENU);
     io.KeySuper = false;
 
+#if defined(ROR_PLATFORM_UWP)
+    XboxInput::FeedImGuiGamepadNav(io);
+#endif
+
     // Call IMGUI
     Ogre::FrameEvent ev;
     ev.timeSinceLastFrame = dt;
@@ -345,6 +352,11 @@ void GUIManager::NewImGuiFrame(float dt)
 void GUIManager::SetupImGui()
 {
     m_imgui.Init();
+#if defined(ROR_PLATFORM_UWP)
+    // Console: menus must be fully usable with a controller (A=activate, B=back, D-pad/LS=move,
+    // LB/RB=switch window). Larger touch targets/fonts for 10-foot UI are a TODO.
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+#endif
     // Colors
     ImGuiStyle& style = ImGui::GetStyle();
     style.Colors[ImGuiCol_Text]                  = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);

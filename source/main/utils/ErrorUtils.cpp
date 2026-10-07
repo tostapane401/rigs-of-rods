@@ -33,6 +33,9 @@
 #include <shlobj.h>
 #include <shellapi.h> // for ShellExecuteW
 #define _L
+#elif OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+#include <windows.h> // OutputDebugStringW() - no MessageBox in the UWP API set
+#define _L
 #elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
 #define _L
 #elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
@@ -66,6 +69,11 @@ int ErrorUtils::ShowMsgBox(const std::string& title, const std::string& err, int
     std::wstring title_w = RoR::Utf8ToWideChar(title);
     std::wstring err_w = RoR::Utf8ToWideChar(err);
     MessageBoxW(NULL, err_w.c_str(), title_w.c_str(), MB_OK | mtype | MB_TOPMOST);
+#elif OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+    // Already written to RoR.log by the callers; also visible in the VS / Device Portal debugger.
+    std::wstring msg_w = RoR::Utf8ToWideChar(title + ": " + err + "\n");
+    OutputDebugStringW(msg_w.c_str());
+    (void)type;
 #elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
 	printf("\n\n%s: %s\n\n", title.c_str(), err.c_str());
 #elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE

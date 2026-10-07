@@ -27,7 +27,16 @@
 #include "PlatformUtils.h"
 #include "Application.h"
 
-#ifdef _MSC_VER
+#if defined(ROR_PLATFORM_UWP)
+    // UWP AppContainer: no shlobj/shellapi, no SHGetFolderPath, no ShellExecute.
+    #include <Windows.h>
+    #include <filesystem>
+    #include <winrt/base.h>
+    #include <winrt/Windows.ApplicationModel.h>
+    #include <winrt/Windows.Foundation.h>
+    #include <winrt/Windows.Storage.h>
+    #include <winrt/Windows.System.h>
+#elif defined(_MSC_VER)
     #include <Windows.h>
     #include <shlobj.h> // SHGetFolderPathW()
     #include <shellapi.h> // ShellExecute()
@@ -79,7 +88,11 @@ DWORD MSW_GetFileAttrs(const char* path)
     std::wstring wpath = MSW_Utf8ToWchar(path);
     // Function reference: https://msdn.microsoft.com/en-us/library/windows/desktop/aa364944(v=vs.85).aspx
     // File attribute constants: https://msdn.microsoft.com/en-us/library/windows/desktop/gg258117(v=vs.85).aspx
-    return GetFileAttributesW(wpath.c_str());
+    // GetFileAttributesExW is part of the API set allowed in UWP/AppContainer and GDK.
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExW(wpath.c_str(), GetFileExInfoStandard, &data))
+        return INVALID_FILE_ATTRIBUTES;
+    return data.dwFileAttributes;
 }
 
 std::string MSW_WcharToUtf8(const wchar_t* wstr) // wstr _must_ be NUL-terminated!
@@ -118,9 +131,56 @@ void CreateFolder(const char* path)
     if (!FolderExists(path))
     {
         std::wstring wpath = MSW_Utf8ToWchar(path);
+#if defined(ROR_PLATFORM_UWP)
+        std::error_code ec; // never throw from here; callers check FolderExists()
+        std::filesystem::create_directories(std::filesystem::path(wpath), ec);
+#else
         CreateDirectoryW(wpath.c_str(), nullptr);
+#endif
     }
 }
+
+#if defined(ROR_PLATFORM_UWP)
+
+std::string GetUserHomeDirectory()
+{
+    // There is no 'home' inside the sandbox: map it to ApplicationData.LocalFolder.
+    // Prefer RoR::PlatformStorage::Get().user_dir in new code.
+    try
+    {
+        return winrt::to_string(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path());
+    }
+    catch (winrt::hresult_error const&)
+    {
+        return std::string();
+    }
+}
+
+std::string GetExecutablePath()
+{
+    // The package is mounted read-only at InstalledLocation; the exe sits at its root.
+    try
+    {
+        std::string dir = winrt::to_string(winrt::Windows::ApplicationModel::Package::Current().InstalledLocation().Path());
+        return dir + "\\RoR.exe";
+    }
+    catch (winrt::hresult_error const&)
+    {
+        return std::string();
+    }
+}
+
+void OpenUrlInDefaultBrowser(std::string const& url)
+{
+    try
+    {
+        winrt::Windows::Foundation::Uri uri(winrt::to_hstring(url));
+        winrt::Windows::System::Launcher::LaunchUriAsync(uri); // fire-and-forget, must be called on UI thread
+    }
+    catch (winrt::hresult_error const&) {}
+}
+
+#else // desktop Win32
 
 std::string GetUserHomeDirectory()
 {
@@ -153,6 +213,8 @@ void OpenUrlInDefaultBrowser(std::string const& url)
 {
     ::ShellExecute(0, 0, url.c_str(), 0, 0 , SW_SHOW );
 }
+
+#endif // ROR_PLATFORM_UWP
 
 #else
 

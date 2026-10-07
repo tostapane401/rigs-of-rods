@@ -34,6 +34,7 @@
 #include "SkinFileFormat.h"
 #include "Language.h"
 #include "PlatformUtils.h"
+#include "RTShaderBootstrap.h"
 
 #include "CacheSystem.h"
 
@@ -147,6 +148,21 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
 
 void ContentManager::InitContentManager()
 {
+    // RTShader System: mandatory on render systems without fixed-function pipeline
+    // (Direct3D11 - desktop and Xbox UWP), optional elsewhere via 'gfx_enable_rtshaders'.
+    // Must run before the first frame and before GfxScene creates the SceneManager.
+    if (RTShaderBootstrap::IsRequired() || App::gfx_enable_rtshaders->getBool())
+    {
+        const std::string shaderlib_dir = PathCombine(App::sys_resources_dir->getStr(), ResourcePack::RTSHADER.name);
+        const std::string zip_path = shaderlib_dir + ".zip";
+        const bool ok = RTShaderBootstrap::Get().Init(FileExists(zip_path) ? zip_path : shaderlib_dir,
+                                                      App::sys_shader_cache_dir->getStr());
+        if (!ok && RTShaderBootstrap::IsRequired())
+        {
+            throw std::runtime_error("[RoR|ContentManager] RTShader System is required by the render system but failed to start, see RoR.log");
+        }
+    }
+
     ResourceGroupManager::getSingleton().addResourceLocation(
         App::sys_config_dir->getStr(), "FileSystem", RGN_CONFIG, /*recursive=*/false, /*readOnly=*/false);
     ResourceGroupManager::getSingleton().addResourceLocation(

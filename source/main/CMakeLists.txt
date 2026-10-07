@@ -35,6 +35,7 @@ set(SOURCE_FILES
         gfx/GfxActor.{h,cpp}
         gfx/GfxData.{h,cpp}
         gfx/GfxScene.{h,cpp}
+        gfx/RTShaderBootstrap.{h,cpp}
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h
         gfx/MovableText.{h,cpp}
@@ -218,6 +219,7 @@ set(SOURCE_FILES
         utils/Language.{h,cpp}
         utils/MeshObject.{h,cpp}
         utils/PlatformUtils.{h,cpp}
+        utils/PlatformStorage.{h,cpp}
         utils/SHA1.{h,cpp}
         utils/Utils.{h,cpp}
         utils/Vec3.h
@@ -267,6 +269,13 @@ if (ROR_USE_ANGELSCRIPT)
             )
 endif ()
 
+if (ROR_PLATFORM_UWP)
+    list(APPEND SOURCE_FILES
+            platform/uwp/UwpApp.{h,cpp}
+            utils/XboxInput.{h,cpp}
+            )
+endif ()
+
 include(SourceFileUtils)
 
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
@@ -275,7 +284,7 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 # Generate source groups for use in IDEs
 source_group(TREE ${CMAKE_CURRENT_LIST_DIR} FILES ${SOURCE_FILES})
 
-if (WIN32)
+if (WIN32 AND NOT ROR_PLATFORM_UWP)
     # clang-cl doesn't support resource files
     if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
         list(APPEND SOURCE_FILES "icon.rc")
@@ -318,10 +327,16 @@ endif ()
 #  PREPROCESSOR DEFINITIONS
 ####################################################################################################
 
-target_compile_definitions(${BINNAME} PRIVATE
-        USE_MUMBLE  # build with support for Mumble positional audio, has no dependencies but requires linking against librt on UNIX
-        #FEAT_DEBUG_MUTEX
-        )
+if (NOT ROR_PLATFORM_UWP) # Mumble link uses named shared memory, not available in the AppContainer
+    target_compile_definitions(${BINNAME} PRIVATE
+            USE_MUMBLE  # build with support for Mumble positional audio, has no dependencies but requires linking against librt on UNIX
+            #FEAT_DEBUG_MUTEX
+            )
+endif ()
+
+if (ROR_PLATFORM_UWP)
+    ror_configure_uwp_target(${BINNAME})
+endif ()
 
 if (ROR_FEAT_TIMING)
     target_compile_definitions(${BINNAME} PRIVATE FEAT_TIMING)
@@ -380,6 +395,7 @@ target_include_directories(${BINNAME} PRIVATE
         utils
         utils/memory
         utils/bbcode
+        platform/uwp
         )
 
 
@@ -407,7 +423,9 @@ target_include_directories(${BINNAME} PRIVATE
 #  REQUIRED DEPENDENCIES
 # -----------------------
 
-if (WIN32)
+if (ROR_PLATFORM_UWP)
+    set(OS_LIBS "") # WindowsApp.lib (added by ror_configure_uwp_target) covers Winsock & co.
+elseif (WIN32)
     set(OS_LIBS "Ws2_32")
 else ()
     #  include_directories(${GTK_INCLUDE_DIRS})
@@ -427,7 +445,7 @@ target_include_directories(${BINNAME} PRIVATE ${OGRE_INCLUDE_DIRS} ${RapidJSON_I
 if (TARGET MyGUI::OgrePlatform)
     target_link_libraries(${BINNAME} PRIVATE MyGUI::OgrePlatform)
 endif ()
-target_compile_definitions(${BINNAME} PRIVATE $<$<PLATFORM_ID:WINDOWS>:MYGUI_STATIC>)
+target_compile_definitions(${BINNAME} PRIVATE $<$<PLATFORM_ID:WINDOWS,WindowsStore>:MYGUI_STATIC>)
 
 #  OPTIONAL DEPENDENCIES
 # -----------------------
@@ -493,8 +511,23 @@ if (WIN32)
     set(CFG_COMMENT_RENDERSYSTEM_GL "# ")
 endif ()
 
-set(CFG_COMMENT_RENDERSYSTEM_D3D11 "# ")
+option(ROR_ENABLE_D3D11_RENDERER "List RenderSystem_Direct3D11 in plugins.cfg (desktop)" OFF)
+if (ROR_PLATFORM_UWP OR ROR_ENABLE_D3D11_RENDERER)
+    set(CFG_COMMENT_RENDERSYSTEM_D3D11 "")
+else ()
+    set(CFG_COMMENT_RENDERSYSTEM_D3D11 "# ")
+endif ()
 set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "# ")
+
+# Image codec / Cg: FreeImage and the NVIDIA Cg runtime do not exist for UWP.
+set(CFG_CODEC_PLUGIN "Codec_FreeImage")
+set(CFG_COMMENT_PLUGIN_CG "")
+if (ROR_PLATFORM_UWP)
+    set(CFG_COMMENT_RENDERSYSTEM_D3D9 "# ")
+    set(CFG_COMMENT_RENDERSYSTEM_GL "# ")
+    set(CFG_CODEC_PLUGIN "Codec_STBI")
+    set(CFG_COMMENT_PLUGIN_CG "# ")
+endif ()
 
 if (DEFINED OGRE_PLUGIN_DIR AND NOT WIN32)
     set(PLUGINS_FOLDER "${OGRE_PLUGIN_DIR}")
@@ -502,7 +535,10 @@ else ()
     set(PLUGINS_FOLDER ".")
 endif ()
 
-if (WIN32)
+if (ROR_PLATFORM_UWP AND NOT ROR_USE_CAELUM)
+    set(CFG_OGRE_PLUGIN_CAELUM "")
+    set(CFG_OGRE_PLUGIN_CAELUM_D "")
+elseif (WIN32)
     set(CFG_OGRE_PLUGIN_CAELUM "Plugin=Caelum")
     set(CFG_OGRE_PLUGIN_CAELUM_D "Plugin=Caelum_d")
 else ()

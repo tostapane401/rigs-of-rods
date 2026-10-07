@@ -39,6 +39,11 @@
 #include "InputEngine.h"
 #include "Language.h"
 #include "PlatformUtils.h"
+#include "PlatformStorage.h"
+#if OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+#   include "UwpApp.h"
+#endif
+#include "RTShaderBootstrap.h"
 #include "RoRVersion.h"
 #include "OverlayWrapper.h"
 
@@ -203,7 +208,7 @@ void AppContext::windowFocusChange(Ogre::RenderWindow* rw)
 
 void AppContext::SetRenderWindowIcon(Ogre::RenderWindow* rw)
 {
-#ifdef _WIN32
+#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32 // not UWP/WinRT: there is no HWND
     size_t hWnd = 0;
     rw->getCustomAttribute("WINDOW", &hWnd);
 
@@ -247,7 +252,13 @@ bool AppContext::SetUpRendering()
         {
             try
             {
+#if OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+                // UWP: OGRE uses LoadPackagedLibrary(), which only accepts paths relative
+                // to the package root -> load by bare module name.
+                m_ogre_root->loadPlugin(plugin_filename);
+#else
                 m_ogre_root->loadPlugin(PathCombine(plugin_dir, plugin_filename));
+#endif
             }
             catch (Ogre::Exception&) {} // Logged by OGRE
         }
@@ -325,6 +336,11 @@ bool AppContext::SetUpRendering()
     {
     miscParams["border"] = "fixed";
     }
+#if OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+    // UWP / Xbox: render into the app's CoreWindow (OGRE: D3D11RenderWindowCoreWindow).
+    miscParams["externalWindowHandle"] = Ogre::StringConverter::toString(RoR::Uwp::GetCoreWindowHandle());
+    miscParams.erase("border");
+#endif
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
     const auto rd = ropts["Rendering Device"];
     const auto it = std::find(rd.possibleValues.begin(), rd.possibleValues.end(), rd.currentValue);
@@ -374,9 +390,14 @@ bool AppContext::SetUpRendering()
     LOG(fmt::format("[RoR|Startup|Rendering] Creating render window with settings:\n{}", miscParams_log.str()));
 
     // Create render window
+#if OGRE_PLATFORM == OGRE_PLATFORM_WINRT
+    const bool fullscreen = false; // CoreWindow is always full-screen on Xbox; DXGI fullscreen is not allowed.
+#else
+    const bool fullscreen = ropts["Full Screen"].currentValue == "Yes";
+#endif
     m_render_window = Ogre::Root::getSingleton().createRenderWindow (
         "Rigs of Rods version " + Ogre::String (ROR_VERSION_STRING),
-        width, height, ropts["Full Screen"].currentValue == "Yes", &miscParams);
+        width, height, fullscreen, &miscParams);
     OgreBites::WindowEventUtilities::_addRenderWindow(m_render_window);
     OgreBites::WindowEventUtilities::addWindowEventListener(m_render_window, this);
 
@@ -492,49 +513,19 @@ void AppContext::PrepareProfiler()
 
 bool AppContext::SetUpProgramPaths()
 {
-    // Process directory
-    std::string exe_path = RoR::GetExecutablePath();
-    if (exe_path.empty())
+    // All storage decisions live in PlatformStorage (Win32 'My Games' / portable,
+    // UWP ApplicationData, GDK PersistentLocalStorage). Nothing here may touch
+    // %USERPROFILE% directly: inside the Xbox/UWP AppContainer that is an access violation.
+    PlatformStorage::Paths paths;
+    std::string error;
+    if (!PlatformStorage::Resolve(paths, error))
     {
-        ErrorUtils::ShowError(_L("Startup error"), _L("Error while retrieving program directory path"));
+        ErrorUtils::ShowError(_L("Startup error"), fmt::format(_L("Error while resolving storage folders: {}"), error));
         return false;
     }
-    App::sys_process_dir->setStr(RoR::GetParentDirectory(exe_path.c_str()).c_str());
 
-    // RoR's home directory
-    std::string local_userdir = PathCombine(App::sys_process_dir->getStr(), "config"); // TODO: Think of a better name, this is ambiguious with ~/.rigsofrods/config which stores configfiles! ~ only_a_ptr, 02/2018
-    if (FolderExists(local_userdir))
-    {
-        // It's a portable installation
-        App::sys_user_dir->setStr(local_userdir.c_str());
-    }
-    else
-    {
-        // Default location - user's home directory
-        std::string user_home = RoR::GetUserHomeDirectory();
-        if (user_home.empty())
-        {
-            ErrorUtils::ShowError(_L("Startup error"), _L("Error while retrieving user directory path"));
-            return false;
-        }
-        RoR::Str<500> ror_homedir;
-#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
-        ror_homedir << user_home << PATH_SLASH << "My Games";
-        CreateFolder(ror_homedir.ToCStr());
-        ror_homedir << PATH_SLASH << "Rigs of Rods";
-#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
-        char* env_SNAP = getenv("SNAP_USER_COMMON");
-        if(env_SNAP)
-            ror_homedir = env_SNAP;
-        else
-            ror_homedir << user_home << PATH_SLASH << ".rigsofrods";
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
-        ror_homedir << user_home << PATH_SLASH << "RigsOfRods";
-#endif
-        CreateFolder(ror_homedir.ToCStr ());
-        App::sys_user_dir->setStr(ror_homedir.ToCStr ());
-    }
-
+    App::sys_process_dir->setStr(paths.install_dir.c_str());
+    App::sys_user_dir->setStr(paths.user_dir.c_str());
     return true;
 }
 

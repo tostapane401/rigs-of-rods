@@ -170,6 +170,7 @@ CVar* sys_process_dir;
 CVar* sys_user_dir;
 CVar* sys_config_dir;
 CVar* sys_cache_dir;
+CVar* sys_shader_cache_dir;
 CVar* sys_thumbnails_dir;
 CVar* sys_logs_dir;
 CVar* sys_resources_dir;

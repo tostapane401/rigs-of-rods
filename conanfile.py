@@ -15,6 +15,18 @@ class RoR(ConanFile):
         self.folders.generators = os.path.join(self.folders.build, "generators")
 
     def requirements(self):
+        if self.settings.os == "WindowsStore":
+            # UWP / Xbox Dev Mode. Only portable, header-only or plain-C++ libraries come from
+            # Conan; the OGRE stack (OGRE 1.11.6, MyGUI, Caelum, PagedGeometry), zlib/zziplib/
+            # freetype and openal-soft are built for WindowsStore by tools/xbox/build-deps.ps1
+            # into ROR_DEPENDENCY_DIR, because their recipes on the rigs-of-rods remote have no
+            # WindowsStore binaries. OIS: portable core only (cmake/XboxUWP.cmake).
+            # Not available in the AppContainer: discord-rpc (IPC pipes), Cg, DirectInput.
+            self.requires("angelscript/2.38.0")
+            self.requires("fmt/12.2.0")
+            self.requires("rapidjson/cci.20211112", force=True)
+            return
+
         self.requires("angelscript/2.38.0")
         self.requires("discord-rpc/3.4.0@anotherfoxguy/stable")
         self.requires("libcurl/8.2.1")
@@ -40,7 +52,7 @@ class RoR(ConanFile):
         tc.generate()
         deps = CMakeDeps(self)
         deps.generate()
-        if self.settings.os == "Windows" and self.settings.build_type == "Release":
+        if self.settings.os in ("Windows", "WindowsStore") and self.settings.build_type == "Release":
             deps.configuration = "RelWithDebInfo"
             deps.generate()
 
