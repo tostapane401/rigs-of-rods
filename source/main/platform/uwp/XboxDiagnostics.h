@@ -11,7 +11,7 @@
 
 /// @file
 /// @brief Xbox bring-up diagnostics (UWP only): on-screen test pattern, RoR.log dumps of the
-///        ImGui/render-window state and two screenshots (.bmp) next to RoR.log.
+///        ImGui / Ogre overlay / MyGUI state (what could be drawing on screen).
 
 #pragma once
 

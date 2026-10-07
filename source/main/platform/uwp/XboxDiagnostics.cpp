@@ -19,9 +19,13 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <MyGUI.h>
+
 #include <OgreMaterialManager.h>
 #include <OgreOverlayManager.h>
-#include <OgreRenderTargetListener.h>
+#include <OgreOverlay.h>
+#include <OgreOverlayContainer.h>
+#include <OgreOverlayElement.h>
 #include <OgreRenderWindow.h>
 #include <OgreRoot.h>
 #include <OgreTechnique.h>
@@ -39,7 +43,7 @@ namespace XboxDiag {
 namespace {
 
 const unsigned long PATTERN_MS = 90000;       // on-screen test pattern lifetime
-const unsigned long SHOT_MS[2] = {8000, 30000}; // screenshot + state dump times
+const unsigned long DUMP_MS[2] = {8000, 30000}; // state dump times (RoR.log)
 
 Ogre::Timer& Clock()
 {
@@ -47,68 +51,36 @@ Ogre::Timer& Clock()
     return t;
 }
 
-// Writes a 24-bit bottom-up BMP, downscaled 2x (keeps the file ~1.5 MB at 1080p).
-bool WriteBmpHalf(const std::string& path, const Ogre::uchar* bgra, uint32_t w, uint32_t h)
+int g_next_dump = 0;
+
+void DumpWidget(MyGUI::Widget* w, int depth)
 {
-    const uint32_t ow = std::max(1u, w / 2), oh = std::max(1u, h / 2);
-    const uint32_t row = (ow * 3 + 3) & ~3u;
-    const uint32_t img = row * oh;
-    FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f)
-        return false;
-    auto u16 = [f](uint16_t v) { std::fwrite(&v, 2, 1, f); };
-    auto u32 = [f](uint32_t v) { std::fwrite(&v, 4, 1, f); };
-    std::fwrite("BM", 1, 2, f);
-    u32(54 + img); u16(0); u16(0); u32(54);
-    u32(40); u32(ow); u32(oh); u16(1); u16(24); u32(0); u32(img); u32(2835); u32(2835); u32(0); u32(0);
-    std::vector<Ogre::uchar> line(row, 0);
-    for (uint32_t y = 0; y < oh; ++y)
+    if (!w || !w->getVisible())
+        return;
+    const MyGUI::IntCoord c = w->getAbsoluteCoord();
+    LogFormat("[RoR|Xbox] DIAG   %*smygui %s '%s' abs=(%d,%d %dx%d) alpha=%.2f", depth * 2, "", w->getTypeName().c_str(),
+              w->getName().c_str(), c.left, c.top, c.width, c.height, w->getAlpha());
+    if (depth < 2)
     {
-        const Ogre::uchar* src = bgra + size_t(h - 1 - std::min(h - 1, y * 2)) * w * 4;
-        for (uint32_t x = 0; x < ow; ++x)
-        {
-            const Ogre::uchar* p = src + size_t(std::min(w - 1, x * 2)) * 4;
-            line[x * 3 + 0] = p[0];
-            line[x * 3 + 1] = p[1];
-            line[x * 3 + 2] = p[2];
-        }
-        std::fwrite(line.data(), 1, row, f);
+        for (size_t i = 0; i < w->getChildCount(); ++i)
+            DumpWidget(w->getChildAt(i), depth + 1);
     }
-    std::fclose(f);
-    return true;
 }
 
-// Grabs the back buffer after everything is drawn, before Present.
-struct ScreenshotGrabber : public Ogre::RenderTargetListener
+void DumpOverlayElement(Ogre::OverlayElement* e, int depth)
 {
-    std::string path;
-    bool pending = false;
-
-    void postRenderTargetUpdate(const Ogre::RenderTargetEvent& evt) override
+    if (!e)
+        return;
+    LogFormat("[RoR|Xbox] DIAG   %*soverlay-elem %s '%s' visible=%d rel=(%.3f,%.3f %.3fx%.3f) mat='%s'", depth * 2, "",
+              e->getTypeName().c_str(), e->getName().c_str(), (int)e->isVisible(), e->_getDerivedLeft(),
+              e->_getDerivedTop(), e->_getRelativeWidth(), e->_getRelativeHeight(), e->getMaterialName().c_str());
+    if (depth < 3 && e->isContainer())
     {
-        if (!pending)
-            return;
-        pending = false;
-        try
-        {
-            Ogre::RenderTarget* rt = evt.source;
-            const uint32_t w = rt->getWidth(), h = rt->getHeight();
-            std::vector<Ogre::uchar> buf(size_t(w) * h * 4, 0);
-            Ogre::PixelBox pb(w, h, 1, Ogre::PF_BYTE_BGRA, buf.data());
-            rt->copyContentsToMemory(Ogre::Box(0, 0, w, h), pb, Ogre::RenderTarget::FB_AUTO);
-            const bool ok = WriteBmpHalf(path, buf.data(), w, h);
-            LogFormat("[RoR|Xbox] screenshot %ux%u -> '%s' %s", w, h, path.c_str(), ok ? "OK" : "WRITE FAILED");
-        }
-        catch (std::exception& e)
-        {
-            LogFormat("[RoR|Xbox] screenshot failed: %s", e.what());
-        }
+        auto it = static_cast<Ogre::OverlayContainer*>(e)->getChildIterator();
+        while (it.hasMoreElements())
+            DumpOverlayElement(it.getNext(), depth + 1);
     }
-};
-
-ScreenshotGrabber g_grabber;
-bool g_listener_added = false;
-int g_next_shot = 0;
+}
 
 void DumpState(Ogre::RenderWindow* window)
 {
@@ -174,6 +146,26 @@ void DumpState(Ogre::RenderWindow* window)
     {
         LogFormat("[RoR|Xbox] DIAG   ImGui material NOT FOUND");
     }
+
+    // Everything else that can put pixels on screen in the main menu: Ogre overlays and MyGUI.
+    auto ov = om.getOverlayIterator();
+    while (ov.hasMoreElements())
+    {
+        Ogre::Overlay* o = ov.getNext();
+        if (!o->isVisible())
+            continue;
+        LogFormat("[RoR|Xbox] DIAG   overlay '%s' zorder=%u", o->getName().c_str(), (unsigned)o->getZOrder());
+        for (Ogre::OverlayContainer* c : o->get2DElements())
+            DumpOverlayElement(c, 1);
+    }
+
+    if (MyGUI::Gui::getInstancePtr())
+    {
+        LogFormat("[RoR|Xbox] DIAG   mygui pointer visible=%d", (int)MyGUI::PointerManager::getInstance().isVisible());
+        MyGUI::EnumeratorWidgetPtr it = MyGUI::Gui::getInstance().getEnumerator();
+        while (it.next())
+            DumpWidget(it.current(), 0);
+    }
 }
 
 } // namespace
@@ -182,21 +174,11 @@ void BeforeRender(Ogre::RenderWindow* window)
 {
     const unsigned long now = Clock().getMilliseconds();
 
-    if (!g_listener_added && window)
-    {
-        window->addListener(&g_grabber);
-        g_listener_added = true;
-    }
-
-    if (g_next_shot < 2 && now >= SHOT_MS[g_next_shot])
+    if (g_next_dump < 2 && now >= DUMP_MS[g_next_dump])
     {
         try { DumpState(window); }
         catch (std::exception& e) { LogFormat("[RoR|Xbox] DIAG dump failed: %s", e.what()); }
-        char name[64];
-        std::snprintf(name, sizeof(name), "xbox-screenshot-%lus.bmp", SHOT_MS[g_next_shot] / 1000);
-        g_grabber.path = PathCombine(App::sys_logs_dir->getStr(), name);
-        g_grabber.pending = true;
-        ++g_next_shot;
+        ++g_next_dump;
     }
 
     // Test pattern (first 90 s), drawn on top of everything by ImGui itself:
