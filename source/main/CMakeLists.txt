@@ -272,6 +272,7 @@ endif ()
 if (ROR_PLATFORM_UWP)
     list(APPEND SOURCE_FILES
             platform/uwp/UwpApp.{h,cpp}
+            platform/uwp/XboxDiagnostics.{h,cpp}
             utils/XboxInput.{h,cpp}
             )
 endif ()

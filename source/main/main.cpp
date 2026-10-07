@@ -53,6 +53,9 @@
 #include "PlatformStorage.h"
 #include "RTShaderBootstrap.h"
 #if defined(ROR_PLATFORM_UWP)
+#include "XboxDiagnostics.h"
+#endif
+#if defined(ROR_PLATFORM_UWP)
 #   include "UwpApp.h"
 #   define ROR_STARTUP_TRACE(_MSG_) RoR::Uwp::Trace("startup: %s", _MSG_)
 #else
@@ -2300,6 +2303,9 @@ int main(int argc, char *argv[])
             }
             else
             {
+#if defined(ROR_PLATFORM_UWP)
+                RoR::XboxDiag::BeforeRender(render_window);
+#endif
                 App::GetAppContext()->GetOgreRoot()->renderOneFrame();
 #if defined(ROR_PLATFORM_UWP)
                 {
