@@ -32,6 +32,8 @@
 #include <OgreTimer.h>
 #include <OgreViewport.h>
 
+#include <d3d11.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <exception>
@@ -91,6 +93,16 @@ void DumpState(Ogre::RenderWindow* window)
     LogFormat("[RoR|Xbox] DIAG build %s %s", __DATE__, __TIME__);
     LogFormat("[RoR|Xbox] DIAG window %ux%u viewports=%d overlay-vp=%dx%d", window->getWidth(), window->getHeight(),
               (int)window->getNumViewports(), om.getViewportWidth(), om.getViewportHeight());
+    // The real swap-chain back buffer (Ogre's own width/height are only what it asked for).
+    ID3D11Texture2D* bb = nullptr;
+    window->getCustomAttribute("ID3D11Texture2D", &bb);
+    if (bb)
+    {
+        D3D11_TEXTURE2D_DESC d = {};
+        bb->GetDesc(&d);
+        LogFormat("[RoR|Xbox] DIAG back buffer %ux%u format=%d samples=%u%s", d.Width, d.Height, (int)d.Format,
+                  d.SampleDesc.Count, (d.Width != window->getWidth() || d.Height != window->getHeight()) ? "  <-- SIZE MISMATCH" : "");
+    }
     for (unsigned short i = 0; i < window->getNumViewports(); ++i)
     {
         Ogre::Viewport* vp = window->getViewport(i);

@@ -90,6 +90,19 @@ Build-CMake "freetype" $ft @(
 # 4) OGRE 1.11.6 - D3D11 only. WINDOWS_STORE makes OGRE build D3D11RenderWindowCoreWindow (C++/CX, /ZW
 #    is set by OGRE's own CMake via VS_WINRT_COMPONENT) and disables GL/D3D9/Cg automatically.
 $ogre = Get-Source "ogre" "https://github.com/OGRECave/ogre.git" "v1.11.6"
+# CoreWindow swap chain: OGRE passes Width/Height = 0 ("automatic sizing", only defined for HWND swap
+# chains). On Xbox that yields a tiny back buffer that the compositor shows unscaled in the middle
+# of the TV (the whole game appeared as a ~16 px square). Use the real window size, like the
+# SwapChainPanel path of the same file already does.
+$d3dwin = Join-Path $ogre "RenderSystems\Direct3D11\src\OgreD3D11RenderWindow.cpp"
+$c = Get-Content -Raw $d3dwin
+if ($c -notmatch 'ROR_UWP_SWAPCHAIN_SIZE') {
+    $c = $c.Replace('mSwapChainDesc.Width                = 0;', 'mSwapChainDesc.Width                = mWidth; /* ROR_UWP_SWAPCHAIN_SIZE */')
+    $c = $c.Replace('mSwapChainDesc.Height               = 0;', 'mSwapChainDesc.Height               = mHeight;')
+    $c = $c.Replace('_resizeSwapChainBuffers(0, 0);', '_resizeSwapChainBuffers(mWidth, mHeight);')
+    if ($c -notmatch 'ROR_UWP_SWAPCHAIN_SIZE' -or $c -match '_resizeSwapChainBuffers\(0, 0\)') { throw "OGRE CoreWindow swap-chain patch did not apply" }
+    Set-Content -NoNewline -Path $d3dwin -Value $c
+}
 Build-CMake "ogre" $ogre @(
     "-DOGRE_BUILD_DEPENDENCIES=OFF", "-DOGRE_DEPENDENCIES_DIR=$PrefixFwd",
     "-DZZip_INCLUDE_DIR=$PrefixFwd/include", "-DZZip_LIBRARY_REL=$($zzipLib.FullName -replace '\\','/')",
