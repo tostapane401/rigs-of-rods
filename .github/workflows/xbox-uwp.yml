@@ -134,6 +134,7 @@ jobs:
             "-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/WindowsStore-x64.cmake",
             "-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake",
             "-DCONAN_INSTALL_ARGS=--build=missing",
+            "-DCONAN_HOST_PROFILE=default;auto-cmake;$((Resolve-Path tools/xbox/conan/uwp-extra.profile).Path -replace '\\','/')",
             "-DROR_DEPENDENCY_DIR=$prefix",
             "-DOGRE_DIR=$($ogreDir -replace '\\','/')",
             "-DROR_CREATE_CONTENT_FOLDER=ON",
