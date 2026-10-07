@@ -2301,6 +2301,25 @@ int main(int argc, char *argv[])
             else
             {
                 App::GetAppContext()->GetOgreRoot()->renderOneFrame();
+#if defined(ROR_PLATFORM_UWP)
+                {
+                    // Console bring-up telemetry: one line every ~2 s during the first minute.
+                    static unsigned long s_frame = 0;
+                    static Ogre::Timer s_timer;
+                    static unsigned long s_last_ms = 0;
+                    ++s_frame;
+                    const unsigned long now_ms = s_timer.getMilliseconds();
+                    if (now_ms < 60000 && (s_frame <= 3 || now_ms - s_last_ms >= 2000))
+                    {
+                        s_last_ms = now_ms;
+                        ImGuiIO& io = ImGui::GetIO();
+                        LOG(fmt::format("[RoR|Xbox] frame {} t={}ms state={} mainmenu={} gui_hidden={} display={}x{} mouse=({},{}) imgui: windows={} vtx={} idx={}",
+                            s_frame, now_ms, App::app_state->getInt(), App::GetGuiManager()->GameMainMenu.IsVisible(),
+                            App::GetGuiManager()->IsGuiHidden(), io.DisplaySize.x, io.DisplaySize.y, io.MousePos.x, io.MousePos.y,
+                            io.MetricsRenderWindows, io.MetricsRenderVertices, io.MetricsRenderIndices));
+                    }
+                }
+#endif
                 if (!render_window->isActive() && render_window->isVisible())
                 {
                     render_window->update(); // update even when in background !

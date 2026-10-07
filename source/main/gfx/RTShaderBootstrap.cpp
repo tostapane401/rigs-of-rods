@@ -129,7 +129,13 @@ Technique* RTShaderBootstrap::SafeResolverListener::handleSchemeNotFound(
         Technique* t = OgreBites::SGTechniqueResolverListener::handleSchemeNotFound(
             schemeIndex, schemeName, originalMaterial, lodIndex, rend);
         if (t)
+        {
+            static int s_logged = 0;
+            if (s_logged++ < 60)
+                RoR::LogFormat("[RoR|RTSS] Generated shaders for material '%s' (group '%s')",
+                               originalMaterial->getName().c_str(), originalMaterial->getGroup().c_str());
             return t;
+        }
 
         // nullptr means either "material is already programmable" (fine, Ogre falls back to
         // the default scheme technique) or "RTSS refused it". Distinguish the two.
