@@ -141,6 +141,21 @@ if ($c -notmatch 'MYGUI_UWP') {
     $c = $c.Replace('return timeGetTime();', "#if defined(MYGUI_UWP)`n`t`treturn (unsigned long)GetTickCount64();`n#else`n`t`treturn timeGetTime();`n#endif")
     Set-Content -NoNewline -Path $timer -Value $c
 }
+# OGRE's D3D11 render system calls ID3D11DeviceContext::ClearState() on every render-target
+# switch, which unbinds MyGUI's constant buffer (YFlipScale -> 0, all vertices collapse) and resets
+# blend/depth/cull state while OGRE's state cache still thinks they are bound. RoR renders the
+# in-cab dashboard through an RTT layer placed first, so every screen layer drawn after it (the HUD
+# tachometer, ...) was invisible on Xbox. Re-establish MyGUI's render state after each switch.
+$rtt = Join-Path $mygui "Platforms\Ogre\OgrePlatform\src\MyGUI_OgreRTTexture.cpp"
+$c = Get-Content -Raw $rtt
+if ($c -notmatch 'ROR_D3D11_CLEARSTATE') {
+    $c = $c.Replace('system->clearFrameBuffer(Ogre::FBT_COLOUR, Ogre::ColourValue::ZERO);',
+        "system->clearFrameBuffer(Ogre::FBT_COLOUR, Ogre::ColourValue::ZERO);`n`t`tOgreRenderManager::getInstance().begin(); /* ROR_D3D11_CLEARSTATE */`n`t`tsystem->_setProjectionMatrix(mProjectMatrix);")
+    $c = $c.Replace('system->_setViewport(mSaveViewport);',
+        "system->_setViewport(mSaveViewport);`n`t`tOgreRenderManager::getInstance().begin(); /* ROR_D3D11_CLEARSTATE */")
+    if (([regex]::Matches($c, 'ROR_D3D11_CLEARSTATE')).Count -ne 2) { throw "MyGUI RTT state patch did not apply" }
+    Set-Content -NoNewline -Path $rtt -Value $c
+}
 Build-CMake "mygui" $mygui @(
     "-DMYGUI_RENDERSYSTEM=3", "-DMYGUI_STATIC=ON", "-DMYGUI_DISABLE_PLUGINS=ON", "-DMYGUI_USE_FREETYPE=ON",
     "-DMYGUI_BUILD_DEMOS=OFF", "-DMYGUI_BUILD_TOOLS=OFF", "-DMYGUI_BUILD_PLUGINS=OFF", "-DMYGUI_BUILD_UNITTESTS=OFF",
