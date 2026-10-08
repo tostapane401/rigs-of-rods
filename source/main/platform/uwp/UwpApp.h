@@ -46,6 +46,9 @@ bool IsVisible();
 /// Size of the CoreWindow in physical pixels (DIPs * scale).
 void GetWindowPixelSize(int& width, int& height);
 
+/// 10-foot UI scale for ImGui fonts/sizes: window height / 720, clamped to [1, 3] (1.5 at 1080p).
+float GetUiScale();
+
 // --- Diagnostics (work before OGRE/RoR logging exists) ---
 
 /// Appends a timestamped line to LocalState\startup-trace.txt and flushes it immediately, so the

@@ -29,6 +29,7 @@
 #include <d3d11.h>
 #include <dxgi1_3.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
@@ -363,6 +364,14 @@ void GetWindowPixelSize(int& width, int& height)
     auto b = g_window.Bounds();
     width  = (int)(b.Width * s + 0.5f);
     height = (int)(b.Height * s + 0.5f);
+}
+
+float GetUiScale()
+{
+    int w = 0, h = 0;
+    GetWindowPixelSize(w, h);
+    if (h <= 0) return 1.f;
+    return (std::max)(1.f, (std::min)(3.f, h / 720.f));
 }
 
 void SetKeyboardHandler(std::function<void(KeyboardEvent const&)> fn) { g_on_key = std::move(fn); }

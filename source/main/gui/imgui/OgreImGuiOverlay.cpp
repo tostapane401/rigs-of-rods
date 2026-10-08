@@ -18,6 +18,9 @@
 #include <OgreRenderQueue.h>
 #include <OgreFrameListener.h>
 #include <OgreRoot.h>
+#if defined(ROR_PLATFORM_UWP)
+#   include "UwpApp.h"
+#endif
 #include <OgreHighLevelGpuProgramManager.h>
 #include <OgreHighLevelGpuProgram.h>
 #include <OgreGpuProgramParams.h>
@@ -178,8 +181,7 @@ ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
 #if defined(ROR_PLATFORM_UWP)
     // 10-foot UI (TV at couch distance): rasterize the font bigger instead of scaling a small
     // bitmap (FontGlobalScale would look blurry). Must match the style scale in GUIManager.
-    const float vp_h = (float)OverlayManager::getSingleton().getViewportHeight();
-    size_px *= std::max(1.f, vp_h / 540.f);
+    size_px *= RoR::Uwp::GetUiScale();
 #endif
     return io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), (int)ttfchunk.size(), size_px, &cfg,
                                           cprangePtr);

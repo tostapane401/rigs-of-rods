@@ -10,7 +10,7 @@
 */
 
 /// @file
-/// @brief Xbox bring-up diagnostics (UWP only): on-screen test pattern, RoR.log dumps of the
+/// @brief Xbox bring-up diagnostics (UWP only): on-screen input status line, RoR.log dumps of the
 ///        ImGui / Ogre overlay / MyGUI state (what could be drawing on screen).
 
 #pragma once

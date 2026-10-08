@@ -140,9 +140,25 @@ private:
     int      m_rel_x = 0, m_rel_y = 0, m_rel_z = 0;
     int      m_buttons = 0, m_prev_buttons = 0;
     bool     m_moved = false;
+    int      m_pad_buttons = 0;                 // virtual cursor (controller A/B)
+    float    m_scroll_acc = 0.f;
+    long long m_last_tick_us = 0;
 };
 
 // -------------------------------------------------------------------------------------------------
+
+/// Controller as mouse for RoR's PC-style menus ("virtual cursor"): left stick moves the
+/// pointer, A = left click, B = right click, right stick = mouse wheel. Drives CoreWindowMouse,
+/// so ImGui, MyGUI and the scene see ordinary mouse events. Enable it while a menu is open.
+void SetVirtualCursorEnabled(bool on);
+bool IsVirtualCursorEnabled();
+
+/// Controller D-pad -> arrow keys, X -> Enter, for RoR's keyboard-driven panels (main menu,
+/// selectors). OR-ed with the real keyboard. Call every frame before ImGui::NewFrame().
+void FeedImGuiGamepadKeys(ImGuiIO& io, const OIS::Keyboard* kb);
+
+/// One line of live input state (devices, buttons, sticks, event counters) for bring-up.
+std::string DebugStatus();
 
 /// Feeds Dear ImGui 1.73 gamepad navigation (io.NavInputs) from the first gamepad.
 /// Call every frame before ImGui::NewFrame(). Requires ImGuiConfigFlags_NavEnableGamepad.

@@ -15,6 +15,7 @@
 
 #include "Application.h"
 #include "PlatformUtils.h"
+#include "XboxInput.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -35,6 +36,7 @@
 #include <d3d11.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
 #include <exception>
 #include <vector>
@@ -44,7 +46,7 @@ namespace XboxDiag {
 
 namespace {
 
-const unsigned long PATTERN_MS = 90000;       // on-screen test pattern lifetime
+const unsigned long STATUS_MS = 600000;       // on-screen input status lifetime
 const unsigned long DUMP_MS[2] = {8000, 30000}; // state dump times (RoR.log)
 
 Ogre::Timer& Clock()
@@ -193,21 +195,22 @@ void BeforeRender(Ogre::RenderWindow* window)
         ++g_next_dump;
     }
 
-    // Test pattern (first 90 s), drawn on top of everything by ImGui itself:
-    //   green frame on the screen edges, red square top-left, blue square bottom-right,
-    //   yellow text. If these show up in the right places, ImGui geometry reaches the screen
-    //   correctly and any remaining problem is in the RoR windows themselves.
-    if (now < PATTERN_MS)
+    // Rendering is confirmed working; during input bring-up show a one-line live input status
+    // at the top of the screen (first 10 minutes) and log it every 5 s for 2 minutes.
+    const std::string status = XboxInput::DebugStatus();
+    static unsigned long s_last_log = 0;
+    if (now < 120000 && now - s_last_log >= 5000)
     {
-        ImGuiIO& io = ImGui::GetIO();
-        const float W = io.DisplaySize.x, H = io.DisplaySize.y;
+        s_last_log = now;
+        LogFormat("[RoR|Xbox] INPUT %s", status.c_str());
+    }
+    if (now < STATUS_MS)
+    {
         ImDrawList* dl = ImGui::GetForegroundDrawList();
-        dl->AddRect(ImVec2(4, 4), ImVec2(W - 4, H - 4), IM_COL32(0, 255, 0, 255), 0.f, 0, 8.f);
-        dl->AddRectFilled(ImVec2(40, 40), ImVec2(240, 240), IM_COL32(255, 0, 0, 255));
-        dl->AddRectFilled(ImVec2(W - 240, H - 240), ImVec2(W - 40, H - 40), IM_COL32(0, 80, 255, 255));
-        char text[160];
-        std::snprintf(text, sizeof(text), "RoR Xbox DIAG  %s %s  display %.0fx%.0f", __DATE__, __TIME__, W, H);
-        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 2.f, ImVec2(270, 60), IM_COL32(255, 255, 0, 255), text);
+        const float fs = ImGui::GetFontSize();
+        const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.f, status.c_str());
+        dl->AddRectFilled(ImVec2(8, 8), ImVec2(24 + size.x, 16 + size.y), IM_COL32(0, 0, 0, 170), 4.f);
+        dl->AddText(ImGui::GetFont(), fs, ImVec2(16, 12), IM_COL32(255, 230, 0, 255), status.c_str());
     }
 }
 

@@ -68,6 +68,45 @@ struct Tracker
 
 Tracker& T() { static Tracker t; return t; }
 
+std::atomic<unsigned> g_key_events{0}, g_char_events{0}, g_pointer_events{0}, g_mouse_delta_events{0};
+std::atomic<bool>     g_virtual_cursor{false};
+
+long long NowUs()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+/// Safety net: if no *Added event arrived, re-enumerate at most once per second.
+void PollDevicesIfEmpty()
+{
+    static long long s_last = 0;
+    const long long now = NowUs();
+    {
+        std::lock_guard<std::mutex> lock(T().mutex);
+        if (!T().pads.empty() || now - s_last < 1000000) return;
+    }
+    s_last = now;
+    try
+    {
+        auto pads = Gamepad::Gamepads();
+        auto wheels = RacingWheel::RacingWheels();
+        std::lock_guard<std::mutex> lock(T().mutex);
+        for (Gamepad const& g : pads)       AddUnique(T().pads, g);
+        for (RacingWheel const& w : wheels) AddUnique(T().wheels, w);
+    }
+    catch (...) {}
+}
+
+/// Stick response for the virtual cursor: dead zone + quadratic curve, result in [-1, 1].
+double StickCurve(double v)
+{
+    const double a = std::fabs(v);
+    if (a < 0.15) return 0.0;
+    const double t = std::min(1.0, (a - 0.15) / 0.85);
+    return v < 0 ? -t * t : t * t;
+}
+
 template <typename V, typename D> void AddUnique(V& v, D const& d)
 {
     if (std::find(v.begin(), v.end(), d) == v.end()) v.push_back(d);
@@ -79,6 +118,7 @@ template <typename V, typename D> void Remove(V& v, D const& d)
 
 Gamepad FirstGamepad()
 {
+    PollDevicesIfEmpty();
     std::lock_guard<std::mutex> lock(T().mutex);
     return T().pads.empty() ? Gamepad(nullptr) : T().pads.front();
 }
@@ -432,11 +472,13 @@ void CoreWindowKeyboard::_initialize()
 {
     Uwp::SetKeyboardHandler([this](Uwp::KeyboardEvent const& e)
     {
+        ++g_key_events;
         const unsigned code = (e.scancode & 0x7F) | (e.extended ? 0x80u : 0u);
         m_queue.push_back({ static_cast<OIS::KeyCode>(code), 0u, e.down });
     });
     Uwp::SetCharacterHandler([this](uint32_t cp)
     {
+        ++g_char_events;
         if (cp < 0x20 && cp != '\t' && cp != '\r') return; // control chars come as key codes
         // OIS delivers text together with keyPressed: attach to the pending key-down if possible.
         for (auto it = m_queue.rbegin(); it != m_queue.rend(); ++it)
@@ -523,6 +565,7 @@ void CoreWindowMouse::_initialize()
     m_abs_y = h * 0.5f;
     Uwp::SetPointerHandler([this](Uwp::PointerEvent const& e)
     {
+        ++g_pointer_events;
         m_abs_x = e.x;
         m_abs_y = e.y;
         m_buttons = (e.left ? 1 << OIS::MB_Left : 0) | (e.right ? 1 << OIS::MB_Right : 0) |
@@ -532,6 +575,7 @@ void CoreWindowMouse::_initialize()
     });
     Uwp::SetMouseDeltaHandler([this](int dx, int dy)
     {
+        ++g_mouse_delta_events;
         m_rel_x += dx;
         m_rel_y += dy;
         m_moved = true;
@@ -550,13 +594,43 @@ void CoreWindowMouse::capture()
     }
     const int prev_x = mState.X.abs, prev_y = mState.Y.abs;
     const int max_x = std::max(0, mState.width - 1), max_y = std::max(0, mState.height - 1);
+
+    // Controller as mouse while a menu is open.
+    const long long now_us = NowUs();
+    const float dt = m_last_tick_us ? std::min(0.1f, (now_us - m_last_tick_us) * 1e-6f) : 0.f;
+    m_last_tick_us = now_us;
+    Gamepad pad = g_virtual_cursor ? FirstGamepad() : Gamepad(nullptr);
+    if (pad)
+    {
+        GamepadReading r = pad.GetCurrentReading();
+        const uint32_t b = static_cast<uint32_t>(r.Buttons);
+        const float speed = 1100.f * std::max(1.f, mState.height / 1080.f); // px/s at full deflection
+        const double dx = StickCurve(r.LeftThumbstickX) * speed * dt;
+        const double dy = -StickCurve(r.LeftThumbstickY) * speed * dt;
+        if (dx != 0.0 || dy != 0.0)
+        {
+            m_abs_x = (float)std::max(0.0, std::min((double)max_x, m_abs_x + dx));
+            m_abs_y = (float)std::max(0.0, std::min((double)max_y, m_abs_y + dy));
+            m_moved = true;
+        }
+        m_scroll_acc += (float)StickCurve(r.RightThumbstickY) * 8.f * dt; // ~8 wheel steps/s
+        while (m_scroll_acc >= 1.f)  { m_rel_z += 120; m_scroll_acc -= 1.f; m_moved = true; }
+        while (m_scroll_acc <= -1.f) { m_rel_z -= 120; m_scroll_acc += 1.f; m_moved = true; }
+        m_pad_buttons = ((b & static_cast<uint32_t>(GamepadButtons::A)) ? 1 << OIS::MB_Left : 0) |
+                        ((b & static_cast<uint32_t>(GamepadButtons::B)) ? 1 << OIS::MB_Right : 0);
+    }
+    else
+    {
+        m_pad_buttons = 0;
+        m_scroll_acc = 0.f;
+    }
     mState.X.abs = std::max(0, std::min(max_x, (int)m_abs_x));
     mState.Y.abs = std::max(0, std::min(max_y, (int)m_abs_y));
     mState.X.rel = m_rel_x ? m_rel_x : (mState.X.abs - prev_x);
     mState.Y.rel = m_rel_y ? m_rel_y : (mState.Y.abs - prev_y);
     mState.Z.rel = m_rel_z;
     mState.Z.abs += m_rel_z;
-    mState.buttons = m_buttons;
+    mState.buttons = m_buttons | m_pad_buttons;
 
     const bool moved = m_moved && (mState.X.rel || mState.Y.rel || mState.Z.rel);
     m_rel_x = m_rel_y = m_rel_z = 0;
@@ -564,7 +638,7 @@ void CoreWindowMouse::capture()
 
     if (!mBuffered || !mListener)
     {
-        m_prev_buttons = m_buttons;
+        m_prev_buttons = mState.buttons;
         return;
     }
     OIS::MouseEvent ev(this, mState);
@@ -573,13 +647,71 @@ void CoreWindowMouse::capture()
     for (int b = OIS::MB_Left; b <= OIS::MB_Middle; ++b)
     {
         const int bit = 1 << b;
-        if ((m_buttons & bit) != (m_prev_buttons & bit))
+        if ((mState.buttons & bit) != (m_prev_buttons & bit))
         {
-            if (m_buttons & bit) mListener->mousePressed(ev, static_cast<OIS::MouseButtonID>(b));
+            if (mState.buttons & bit) mListener->mousePressed(ev, static_cast<OIS::MouseButtonID>(b));
             else                 mListener->mouseReleased(ev, static_cast<OIS::MouseButtonID>(b));
         }
     }
-    m_prev_buttons = m_buttons;
+    m_prev_buttons = mState.buttons;
+}
+
+// =================================================================================================
+// Virtual cursor / keyboard emulation / diagnostics
+// =================================================================================================
+
+void SetVirtualCursorEnabled(bool on) { g_virtual_cursor = on; }
+bool IsVirtualCursorEnabled()         { return g_virtual_cursor; }
+
+void FeedImGuiGamepadKeys(ImGuiIO& io, const OIS::Keyboard* kb)
+{
+    static bool s_prev[5] = {};
+    Gamepad pad = FirstGamepad();
+    const uint32_t b = pad ? static_cast<uint32_t>(pad.GetCurrentReading().Buttons) : 0u;
+    const struct { OIS::KeyCode kc; GamepadButtons btn; } MAP[5] = {
+        { OIS::KC_UP, GamepadButtons::DPadUp },     { OIS::KC_DOWN, GamepadButtons::DPadDown },
+        { OIS::KC_LEFT, GamepadButtons::DPadLeft }, { OIS::KC_RIGHT, GamepadButtons::DPadRight },
+        { OIS::KC_RETURN, GamepadButtons::X },
+    };
+    for (int i = 0; i < 5; ++i)
+    {
+        const bool pressed = (b & static_cast<uint32_t>(MAP[i].btn)) != 0;
+        // Only touch the key while the controller holds it (or just released it), so real
+        // keyboard taps delivered through OIS events are not overwritten.
+        if (pressed)
+            io.KeysDown[MAP[i].kc] = true;
+        else if (s_prev[i])
+            io.KeysDown[MAP[i].kc] = kb && kb->isKeyDown(MAP[i].kc);
+        s_prev[i] = pressed;
+    }
+}
+
+std::string DebugStatus()
+{
+    size_t npads = 0, nwheels = 0;
+    {
+        std::lock_guard<std::mutex> lock(T().mutex);
+        npads = T().pads.size();
+        nwheels = T().wheels.size();
+    }
+    char buf[256];
+    Gamepad pad = FirstGamepad();
+    if (pad)
+    {
+        GamepadReading r = pad.GetCurrentReading();
+        std::snprintf(buf, sizeof(buf),
+                      "pads=%zu wheels=%zu buttons=0x%05X LS=(%+.2f,%+.2f) LT/RT=%.2f/%.2f | keys=%u chars=%u pointer=%u mouse=%u | cursor=%s",
+                      npads, nwheels, static_cast<unsigned>(r.Buttons), r.LeftThumbstickX, r.LeftThumbstickY,
+                      r.LeftTrigger, r.RightTrigger, g_key_events.load(), g_char_events.load(),
+                      g_pointer_events.load(), g_mouse_delta_events.load(), g_virtual_cursor ? "on" : "off");
+    }
+    else
+    {
+        std::snprintf(buf, sizeof(buf), "pads=%zu wheels=%zu (no controller) | keys=%u chars=%u pointer=%u mouse=%u | cursor=%s",
+                      npads, nwheels, g_key_events.load(), g_char_events.load(), g_pointer_events.load(),
+                      g_mouse_delta_events.load(), g_virtual_cursor ? "on" : "off");
+    }
+    return buf;
 }
 
 // =================================================================================================

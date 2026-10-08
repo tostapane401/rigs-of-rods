@@ -40,6 +40,7 @@
 #include "PlatformUtils.h"
 #if defined(ROR_PLATFORM_UWP)
 #   include "XboxInput.h"
+#   include "UwpApp.h"
 #endif
 #include "RTTLayer.h"
 #include "Terrain.h"
@@ -337,7 +338,17 @@ void GUIManager::NewImGuiFrame(float dt)
     io.KeySuper = false;
 
 #if defined(ROR_PLATFORM_UWP)
-    XboxInput::FeedImGuiGamepadNav(io);
+    // Controller in menus: left stick = mouse pointer, A = click, B = right click, RS = wheel,
+    // D-pad = arrow keys, X = Enter. Off while driving (no menu open): the controller then only
+    // feeds the vehicle controls through InputEngine.
+    {
+        const bool menu_open = App::app_state->getEnum<AppState>() != AppState::SIMULATION ||
+            GameMainMenu.IsVisible() || MainSelector.IsVisible() || MultiplayerSelector.IsVisible() ||
+            GameSettings.IsVisible() || GameControls.IsVisible() || GameAbout.IsVisible() ||
+            RepositorySelector.IsVisible();
+        XboxInput::SetVirtualCursorEnabled(menu_open);
+        XboxInput::FeedImGuiGamepadKeys(io, kb);
+    }
 #endif
 
     // Call IMGUI
@@ -353,9 +364,8 @@ void GUIManager::SetupImGui()
 {
     m_imgui.Init();
 #if defined(ROR_PLATFORM_UWP)
-    // Console: menus must be fully usable with a controller (A=activate, B=back, D-pad/LS=move,
-    // LB/RB=switch window). Larger touch targets/fonts for 10-foot UI are a TODO.
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    // ImGui's own gamepad navigation stays OFF: the controller drives a virtual mouse cursor
+    // instead (XboxInput::SetVirtualCursorEnabled), which works with every RoR window.
 #endif
     // Colors
     ImGuiStyle& style = ImGui::GetStyle();
@@ -404,8 +414,8 @@ void GUIManager::SetupImGui()
     style.GrabRounding          = 3.f;
     style.WindowBorderSize      = 0.f;
 #if defined(ROR_PLATFORM_UWP)
-    // 10-foot UI: same factor as the font size in ImGuiOverlay::addFont() (2.0 at 1080p).
-    const float ui_scale = std::max(1.f, (float)Ogre::OverlayManager::getSingleton().getViewportHeight() / 540.f);
+    // 10-foot UI: same factor as the font size in ImGuiOverlay::addFont() (1.5 at 1080p).
+    const float ui_scale = RoR::Uwp::GetUiScale();
     style.ScaleAllSizes(ui_scale);
     RoR::LogFormat("[RoR|Xbox] UI scale %.2f", ui_scale);
 #endif
