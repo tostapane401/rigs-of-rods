@@ -104,6 +104,45 @@ if ($c -notmatch 'ROR_UWP_SWAPCHAIN_SIZE') {
     if ($c -notmatch 'ROR_UWP_SWAPCHAIN_SIZE' -or $c -match '_resizeSwapChainBuffers\(0, 0\)') { throw "OGRE CoreWindow swap-chain patch did not apply" }
     Set-Content -NoNewline -Path $d3dwin -Value $c
 }
+# D3D11HardwarePixelBuffer::blitFromMemory throws when source and destination sizes differ (D3D11
+# cannot scale). D3D9/GL scale instead, and plenty of mod textures rely on that (image size or
+# mip chain not matching what OGRE allocated) -> "cannot copy a subresource" fatal error when
+# loading a modded map/vehicle. Scale on the CPU like the GL render systems; compressed images
+# are uploaded when the block grid matches, otherwise skipped with a warning.
+$pixbuf = Join-Path $ogre "RenderSystems\Direct3D11\src\OgreD3D11HardwarePixelBuffer.cpp"
+$c = Get-Content -Raw $pixbuf
+if ($c -notmatch 'ROR_D3D11_BLIT_SCALE') {
+    $scaleCode = @'
+// ROR_D3D11_BLIT_SCALE
+            if (PixelUtil::isCompressed(src.format))
+            {
+                if (src.format == mFormat &&
+                    PixelUtil::getMemorySize(src.getWidth(), src.getHeight(), src.getDepth(), src.format) ==
+                    PixelUtil::getMemorySize(dst.getWidth(), dst.getHeight(), dst.getDepth(), src.format))
+                {
+                    PixelBox same(dst.getWidth(), dst.getHeight(), dst.getDepth(), src.format, src.data);
+                    blitFromMemory(same, dst);
+                }
+                else
+                {
+                    LogManager::getSingleton().logMessage("D3D11: skipped upload of compressed image with mismatching size into '" +
+                        mParentTexture->getName() + "'", LML_CRITICAL);
+                }
+                return;
+            }
+            std::vector<uint8> scaledData(PixelUtil::getMemorySize(dst.getWidth(), dst.getHeight(), dst.getDepth(), src.format));
+            PixelBox scaled(dst.getWidth(), dst.getHeight(), dst.getDepth(), src.format, scaledData.data());
+            Image::scale(src, scaled, Image::FILTER_BILINEAR);
+            blitFromMemory(scaled, dst);
+            return;
+'@
+    # Anchor inside blitFromMemory (blit() and blitToMemory() carry the same message).
+    $re = [regex]'(void D3D11HardwarePixelBuffer::blitFromMemory\(const PixelBox &src, const Box &dst\)\s*\{\s*if \([^{]*\{\s*)OGRE_EXCEPT\(Exception::ERR_RENDERINGAPI_ERROR,\s*"D3D11 device cannot copy a subresource - source and dest size[^;]*;'
+    $c2 = $re.Replace($c, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + $scaleCode }, 1)
+    $c2 = $c2.Replace('#include "OgreBitwise.h"', "#include `"OgreBitwise.h`"`n#include `"OgreImage.h`"")
+    if ($c2 -notmatch 'ROR_D3D11_BLIT_SCALE' -or $c2 -notmatch 'OgreImage\.h') { throw "OGRE D3D11 blitFromMemory scaling patch did not apply" }
+    Set-Content -NoNewline -Path $pixbuf -Value $c2
+}
 Build-CMake "ogre" $ogre @(
     "-DOGRE_BUILD_DEPENDENCIES=OFF", "-DOGRE_DEPENDENCIES_DIR=$PrefixFwd",
     "-DZZip_INCLUDE_DIR=$PrefixFwd/include", "-DZZip_LIBRARY_REL=$($zzipLib.FullName -replace '\\','/')",
