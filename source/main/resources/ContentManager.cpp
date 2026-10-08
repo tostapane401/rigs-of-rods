@@ -413,6 +413,17 @@ void ContentManager::InitManagedMaterials(std::string const & rg_name)
 {
     Ogre::String managed_materials_dir = PathCombine(App::sys_resources_dir->getStr(), "managed_materials");
 
+#if defined(ROR_PLATFORM_UWP)
+    // PSSM shadow materials are written in Cg, which does not exist for D3D11/Xbox: every managed
+    // material inheriting 'Shadows/managed/base_receiver' (e.g. the character) became unsupported
+    // and rendered white. Use the shadow-less variants until PSSM has HLSL programs.
+    if (App::gfx_shadow_type->getEnum<GfxShadowType>() != GfxShadowType::NONE)
+    {
+        LOG("[RoR|Xbox] PSSM shadows need Cg programs (not available on Xbox) - shadows disabled");
+        App::gfx_shadow_type->setVal((int)GfxShadowType::NONE);
+    }
+#endif
+
     //Dirty, needs to be improved
     if (App::gfx_shadow_type->getEnum<GfxShadowType>() == GfxShadowType::PSSM)
     {

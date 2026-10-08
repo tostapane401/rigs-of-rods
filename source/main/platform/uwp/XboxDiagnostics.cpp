@@ -16,6 +16,8 @@
 #include "Application.h"
 #include "PlatformUtils.h"
 #include "XboxInput.h"
+#include "GameContext.h"
+#include "Actor.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -181,6 +183,8 @@ void DumpState(Ogre::RenderWindow* window)
     {
         LogFormat("[RoR|Xbox] DIAG   mygui pointer visible=%d batches(last frame)=%u", (int)MyGUI::PointerManager::getInstance().isVisible(),
                   (unsigned)MyGUI::OgreRenderManager::getInstance().getBatchCount());
+        const MyGUI::IntSize mvs = MyGUI::RenderManager::getInstance().getViewSize();
+        LogFormat("[RoR|Xbox] DIAG   mygui view size %dx%d", mvs.width, mvs.height);
         for (const char* prog : {"MyGUI_VP.hlsl", "MyGUI_FP.hlsl"})
         {
             Ogre::HighLevelGpuProgramPtr p = Ogre::HighLevelGpuProgramManager::getSingleton().getByName(prog, "MyGuiRG");
@@ -202,10 +206,11 @@ void BeforeRender(Ogre::RenderWindow* window)
 {
     const unsigned long now = Clock().getMilliseconds();
 
-    // One more dump 10 s into the first driving session (HUD / dashboards are MyGUI).
+    // One more dump 10 s after first entering a vehicle (HUD / dashboards are MyGUI).
     static unsigned long s_sim_since = 0;
     static bool s_sim_dumped = false;
-    if (!s_sim_dumped && App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+    if (!s_sim_dumped && App::app_state->getEnum<AppState>() == AppState::SIMULATION &&
+        App::GetGameContext()->GetPlayerActor() != nullptr) // driving a vehicle
     {
         if (!s_sim_since)
             s_sim_since = now ? now : 1;
@@ -238,11 +243,6 @@ void BeforeRender(Ogre::RenderWindow* window)
             LogFormat("[RoR|Xbox] DIAG MyGUI probe failed: %s", e.what());
             s_probe = reinterpret_cast<MyGUI::TextBox*>(1); // do not retry
         }
-    }
-    if (s_probe && s_probe != reinterpret_cast<MyGUI::TextBox*>(1) && now >= STATUS_MS)
-    {
-        MyGUI::Gui::getInstance().destroyWidget(s_probe);
-        s_probe = reinterpret_cast<MyGUI::TextBox*>(1);
     }
 
     if (g_next_dump < 2 && now >= DUMP_MS[g_next_dump])
