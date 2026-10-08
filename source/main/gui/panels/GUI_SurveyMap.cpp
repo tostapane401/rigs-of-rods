@@ -39,6 +39,9 @@
 #include "TerrainObjectManager.h"
 #include "Collisions.h"
 
+#include <fmt/format.h>
+#include <OgreTimer.h>
+
 using namespace RoR;
 using namespace GUI;
 using namespace Ogre;
@@ -471,10 +474,35 @@ void SurveyMap::CreateTerrainTextures()
     int fsaa = StringConverter::parseInt(ropts["FSAA"].currentValue, 0);
 
     SurveyMapTextureCreator texCreatorStatic(terrain_size.y);
+#if defined(ROR_PLATFORM_UWP)
+    // Xbox: a 4096x4096 multisampled snapshot plus a full GPU->CPU readback (convertToImage) is
+    // far too heavy for the console and the loading screen stopped at 92 %. Render 2048x2048
+    // without MSAA and keep the render texture itself as the map image (no readback).
+    Ogre::Timer timer;
+    LOG("[RoR|Xbox] SurveyMap: rendering terrain snapshot 2048x2048");
+    try
+    {
+        texCreatorStatic.init(2048, 0);
+        texCreatorStatic.update(mMapCenter + mMapCenterOffset, mTerrainSize);
+        mMapTexture = texCreatorStatic.detachTexture();
+    }
+    catch (std::exception& e)
+    {
+        LOG(fmt::format("[RoR|Xbox] SurveyMap: terrain snapshot failed: {}", e.what()));
+    }
+    if (!mMapTexture)
+    {
+        // Plain dark texture so the map UI still works (icons only).
+        mMapTexture = Ogre::TextureManager::getSingleton().createManual("SurveyMapStatic-Fallback-" + TOSTRING(timer.getMicroseconds()),
+            Ogre::RGN_DEFAULT, Ogre::TEX_TYPE_2D, 4, 4, 0, Ogre::PF_BYTE_RGBA);
+    }
+    LOG(fmt::format("[RoR|Xbox] SurveyMap: done in {} ms", timer.getMilliseconds()));
+#else
     texCreatorStatic.init(4096, fsaa);
     texCreatorStatic.update(mMapCenter + mMapCenterOffset, mTerrainSize);
     mMapTexture = texCreatorStatic.convertTextureToStatic(
         "SurveyMapStatic", App::GetGameContext()->GetTerrain()->getTerrainFileResourceGroup());
+#endif
 }
 
 

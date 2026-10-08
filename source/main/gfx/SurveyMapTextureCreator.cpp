@@ -116,6 +116,19 @@ void SurveyMapTextureCreator::postRenderTargetUpdate(const RenderTargetEvent &ev
     }
 }
 
+Ogre::TexturePtr SurveyMapTextureCreator::detachTexture()
+{
+    if (mRttTex)
+    {
+        mRttTex->removeListener(this);
+        mRttTex->removeAllViewports();
+        mRttTex = nullptr;
+    }
+    Ogre::TexturePtr tex = mTexture;
+    mTexture.reset();
+    return tex;
+}
+
 Ogre::TexturePtr SurveyMapTextureCreator::convertTextureToStatic(const std::string& texName, const std::string& rgName)
 {
     Ogre::Image img;

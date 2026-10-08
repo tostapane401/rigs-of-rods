@@ -35,6 +35,9 @@ public:
     bool init(int res, int fsaa);
     void update(Ogre::Vector2 center, Ogre::Vector2 size);
     Ogre::TexturePtr convertTextureToStatic(const std::string& texName, const std::string& rgName);
+    /// Keeps the rendered RTT texture itself as the map image (no GPU->CPU readback). The
+    /// creator gives up ownership; the texture is no longer updated.
+    Ogre::TexturePtr detachTexture();
 
 protected:
 
