@@ -68,6 +68,15 @@ struct Tracker
 
 Tracker& T() { static Tracker t; return t; }
 
+template <typename V, typename D> void AddUnique(V& v, D const& d)
+{
+    if (std::find(v.begin(), v.end(), d) == v.end()) v.push_back(d);
+}
+template <typename V, typename D> void Remove(V& v, D const& d)
+{
+    v.erase(std::remove(v.begin(), v.end(), d), v.end());
+}
+
 std::atomic<unsigned> g_key_events{0}, g_char_events{0}, g_pointer_events{0}, g_mouse_delta_events{0};
 std::atomic<bool>     g_virtual_cursor{false};
 
@@ -105,15 +114,6 @@ double StickCurve(double v)
     if (a < 0.15) return 0.0;
     const double t = std::min(1.0, (a - 0.15) / 0.85);
     return v < 0 ? -t * t : t * t;
-}
-
-template <typename V, typename D> void AddUnique(V& v, D const& d)
-{
-    if (std::find(v.begin(), v.end(), d) == v.end()) v.push_back(d);
-}
-template <typename V, typename D> void Remove(V& v, D const& d)
-{
-    v.erase(std::remove(v.begin(), v.end(), d), v.end());
 }
 
 Gamepad FirstGamepad()
