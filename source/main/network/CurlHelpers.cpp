@@ -22,6 +22,7 @@
 #include "Application.h"
 #include "CurlHelpers.h"
 #include "GameContext.h"
+#include "PlatformUtils.h"
 #include "RoRVersion.h"
 #include "ScriptEvents.h"
 #include "ServerScriptEngine.h"
@@ -69,6 +70,19 @@ static size_t CurlProgressFunc(void* ptr, double filesize_B, double downloaded_B
     // If you don't return 0, the transfer will be aborted - see the documentation
     return 0;
 }
+
+#if defined(ROR_PLATFORM_UWP)
+CURL* RoR::UwpCurlEasyInit()
+{
+    static const std::string ca_bundle = PathCombine(App::sys_process_dir->getStr(), "cacert.pem");
+    CURL* curl = (curl_easy_init)(); // parentheses: the real function, not the pch.h macro
+    if (curl)
+    {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle.c_str());
+    }
+    return curl;
+}
+#endif // ROR_PLATFORM_UWP
 
 bool RoR::GetUrlAsString(const std::string& url, CURLcode& curl_result, long& response_code, std::string& response_payload)
 {

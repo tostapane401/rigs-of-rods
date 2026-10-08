@@ -63,6 +63,12 @@
 
 #ifdef USE_CURL
 #include <curl/curl.h>
+#if defined(ROR_PLATFORM_UWP)
+// Xbox/UWP: curl uses mbedTLS, which has no access to a system certificate store. Every handle
+// gets the CA bundle shipped in the package (see RoR::UwpCurlEasyInit in CurlHelpers.cpp).
+namespace RoR { CURL* UwpCurlEasyInit(); }
+#define curl_easy_init() RoR::UwpCurlEasyInit()
+#endif // ROR_PLATFORM_UWP
 #endif// USE_CURL
 
 #ifdef USE_DISCORD_RPC

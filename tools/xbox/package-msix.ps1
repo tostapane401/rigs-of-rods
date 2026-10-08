@@ -60,6 +60,10 @@ foreach ($d in @("resources", "languages", "content")) {
     $src = Join-Path $BinDir $d
     if (Test-Path $src) { Copy-Item -Recurse $src (Join-Path $Layout $d) }
 }
+# Mozilla CA bundle for curl/mbedTLS (https: repository browser, server list).
+$caBundle = Join-Path $DepsPrefix "share\cacert.pem"
+if (Test-Path $caBundle) { Copy-Item $caBundle $Layout }
+else { Write-Host "::warning::cacert.pem not found in the dependency prefix - https downloads will fail" }
 if (-not (Test-Path (Join-Path $Layout "resources\skeleton.zip"))) { throw "resources\skeleton.zip missing - did the RoR build run its resource zipping step?" }
 
 foreach ($dll in @("OgreMain.dll", "RenderSystem_Direct3D11.dll", "Codec_STBI.dll", "Plugin_ParticleFX.dll", "Plugin_OctreeSceneManager.dll")) {

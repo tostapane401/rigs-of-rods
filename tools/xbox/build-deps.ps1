@@ -36,10 +36,11 @@ $PrefixFwd = $Prefix -replace '\\', '/'
 
 . (Join-Path $PSScriptRoot "ci-common.ps1")   # Invoke-Logged: logs + GitHub error annotations
 
-function Get-Source([string] $name, [string] $url, [string] $tag = "") {
+function Get-Source([string] $name, [string] $url, [string] $tag = "", [switch] $Submodules) {
     $dir = Join-Path $Work "src\$name"
     if (-not (Test-Path $dir)) {
-        if ($tag) { Invoke-Logged "git clone $name" { git -c credential.interactive=never clone --quiet --depth 1 --branch $tag $url $dir } -TimeoutMinutes 15 }
+        if ($tag -and $Submodules) { Invoke-Logged "git clone $name" { git -c credential.interactive=never clone --quiet --depth 1 --recurse-submodules --shallow-submodules --branch $tag $url $dir } -TimeoutMinutes 15 }
+        elseif ($tag) { Invoke-Logged "git clone $name" { git -c credential.interactive=never clone --quiet --depth 1 --branch $tag $url $dir } -TimeoutMinutes 15 }
         else      { Invoke-Logged "git clone $name" { git -c credential.interactive=never clone --quiet --depth 1 $url $dir } -TimeoutMinutes 15 }
     }
     return $dir
@@ -169,16 +170,32 @@ Build-CMake "socketw" $sw @(
     "-DBUILD_SHARED_LIBS=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE",
     "-DCMAKE_CXX_FLAGS_INIT=/D_WINSOCK_DEPRECATED_NO_WARNINGS")
 
-#    libcurl: plain HTTP for now. Schannel needs SSPI (InitSecurityInterface & co.), which is not
-#    part of the UWP API set; a TLS backend that works in the AppContainer (e.g. mbedTLS) is a
-#    follow-up. Without TLS RoR compiles and runs; https downloads (repository browser) fail.
+#    TLS: Schannel needs SSPI (InitSecurityInterface & co.), which is not part of the UWP API set.
+#    mbedTLS is self-contained (only BCryptGenRandom from the OS) and works in the AppContainer.
+#    Certificates: Mozilla CA bundle shipped in the package (cacert.pem next to RoR.exe); RoR
+#    points every curl handle at it on UWP (CURLOPT_CAINFO).
+$mbed = Get-Source "mbedtls" "https://github.com/Mbed-TLS/mbedtls.git" "v3.6.2" -Submodules
+Build-CMake "mbedtls" $mbed @(
+    "-DENABLE_PROGRAMS=OFF", "-DENABLE_TESTING=OFF", "-DGEN_FILES=OFF", "-DMBEDTLS_FATAL_WARNINGS=OFF",
+    "-DUSE_STATIC_MBEDTLS_LIBRARY=ON", "-DUSE_SHARED_MBEDTLS_LIBRARY=OFF", "-DINSTALL_MBEDTLS_HEADERS=ON")
+
+New-Item -ItemType Directory -Force -Path (Join-Path $Prefix "share") | Out-Null
+$caBundle = Join-Path $Prefix "share\cacert.pem"
+Invoke-Logged "download CA bundle" {
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "https://curl.se/ca/cacert.pem" -OutFile $caBundle
+    if ((Get-Item $caBundle).Length -lt 100000) { throw "cacert.pem looks truncated" }
+    Write-Host "cacert.pem: $((Get-Item $caBundle).Length) bytes"
+    $global:LASTEXITCODE = 0
+} -TimeoutMinutes 5
+
 $curl = Get-Source "curl" "https://github.com/curl/curl.git" "curl-8_10_1"
 Build-CMake "curl" $curl @(
     "-DBUILD_SHARED_LIBS=ON", "-DBUILD_CURL_EXE=OFF", "-DBUILD_TESTING=OFF", "-DBUILD_LIBCURL_DOCS=OFF",
     "-DBUILD_MISC_DOCS=OFF", "-DENABLE_CURL_MANUAL=OFF", "-DCURL_USE_LIBPSL=OFF", "-DCURL_USE_LIBSSH2=OFF",
     "-DUSE_NGHTTP2=OFF", "-DUSE_LIBIDN2=OFF", "-DCURL_BROTLI=OFF", "-DCURL_ZSTD=OFF", "-DCURL_DISABLE_LDAP=ON",
     "-DENABLE_UNICODE=OFF", "-DCURL_ZLIB=ON", "-DCURL_USE_OPENSSL=OFF", "-DCURL_USE_SCHANNEL=OFF",
-    "-DCURL_WINDOWS_SSPI=OFF", "-DCURL_ENABLE_SSL=OFF", "-DENABLE_IPV6=ON",
+    "-DCURL_WINDOWS_SSPI=OFF", "-DCURL_ENABLE_SSL=ON", "-DCURL_USE_MBEDTLS=ON", "-DENABLE_IPV6=ON",
+    "-DCURL_CA_BUNDLE=none", "-DCURL_CA_PATH=none", "-DCURL_DISABLE_SRP=ON",
     "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE")
 
 # 7) Optional components: failures are reported but do not stop the pipeline. RoR's CMake turns the
