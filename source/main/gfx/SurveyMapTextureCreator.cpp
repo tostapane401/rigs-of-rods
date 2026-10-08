@@ -55,7 +55,12 @@ bool SurveyMapTextureCreator::init(int res, int fsaa)
 {
     mTexture = Ogre::TextureManager::getSingleton().createManual(mTextureName,
         Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, Ogre::TEX_TYPE_2D, res, res,
+#if defined(ROR_PLATFORM_UWP)
+        // D3D11 has no 24-bit render-target format (PF_R8G8B8 -> E_INVALIDARG).
+        Ogre::TU_RENDERTARGET, Ogre::PF_X8R8G8B8, Ogre::TU_RENDERTARGET, 0, false, fsaa);
+#else
         Ogre::TU_RENDERTARGET, Ogre::PF_R8G8B8, Ogre::TU_RENDERTARGET, 0, false, fsaa);
+#endif
 
     if (!mTexture)
         return false;

@@ -30,10 +30,14 @@
 #include <OgreResourceGroupManager.h>
 #include <OgreRoot.h>
 #include <OgreTechnique.h>
+#include <OgreMaterialManager.h>
+#include <OgreTextureUnitState.h>
+#include <OgrePass.h>
 #include <OgreViewport.h>
 
 #include <fmt/format.h>
 #include <fstream>
+#include <set>
 
 using namespace Ogre;
 
@@ -59,6 +63,56 @@ bool TechniqueIsProgrammable(const Technique* tech)
     return true;
 }
 
+/// Materials whose techniques all depend on GPU programs that cannot run here (Cg: NiceMetal,
+/// Fresnel water, PSSM shadows, shaders shipped by mods...): OGRE reports "no supportable
+/// Techniques" and draws them plain white. Strip those programs (and cube env-map units, which
+/// only make sense with them) so the RTSS can generate a regular textured technique instead.
+/// Returns true if the material became usable.
+bool RepairUnsupportedMaterial(Material* mat)
+{
+    static std::set<std::string> s_tried;
+    if (!mat || !mat->getSupportedTechniques().empty())
+        return false;
+    if (!s_tried.insert(mat->getGroup() + "/" + mat->getName()).second)
+        return false;
+
+    auto unusable = [](const GpuProgramPtr& prog) { return !prog || !prog->isSupported(); };
+    int stripped = 0;
+    for (Technique* tech : mat->getTechniques())
+    {
+        for (Pass* pass : tech->getPasses())
+        {
+            const bool bad =
+                (pass->hasVertexProgram() && unusable(pass->getVertexProgram())) ||
+                (pass->hasFragmentProgram() && unusable(pass->getFragmentProgram())) ||
+                (pass->hasGeometryProgram() && unusable(pass->getGeometryProgram()));
+            if (!bad)
+                continue;
+            pass->setVertexProgram("");
+            pass->setFragmentProgram("");
+            pass->setGeometryProgram("");
+            pass->setShadowCasterVertexProgram("");
+            pass->setShadowCasterFragmentProgram("");
+            pass->setShadowReceiverVertexProgram("");
+            pass->setShadowReceiverFragmentProgram("");
+            for (unsigned short i = pass->getNumTextureUnitStates(); i-- > 0;)
+            {
+                if (pass->getTextureUnitState(i)->getTextureType() == TEX_TYPE_CUBE_MAP)
+                    pass->removeTextureUnitState(i);
+            }
+            ++stripped;
+        }
+    }
+    if (!stripped)
+        return false;
+    mat->compile();
+    const bool ok = !mat->getSupportedTechniques().empty();
+    RoR::LogFormat("[RoR|RTSS] Material '%s' (group '%s'): %d pass(es) used shaders unavailable on this platform (Cg) "
+                   "-> replaced by RTSS shaders%s", mat->getName().c_str(), mat->getGroup().c_str(), stripped,
+                   ok ? "" : " - STILL UNSUPPORTED");
+    return ok;
+}
+
 /// Last line of defence: the RenderQueue asks this listener for every renderable
 /// it receives. If, for any reason (custom viewport scheme set by a plugin, a
 /// render target updated before the enforcer saw it, a material with only Cg
@@ -73,7 +127,20 @@ public:
     bool renderableQueued(Renderable* rend, uint8 groupID, ushort priority,
                           Technique** ppTech, RenderQueue* pQueue) override
     {
-        (void)rend; (void)groupID; (void)priority; (void)pQueue;
+        (void)groupID; (void)priority; (void)pQueue;
+
+        // Renderable whose own material had no usable technique (OGRE substituted BaseWhite).
+        const MaterialPtr& own = rend ? rend->getMaterial() : MaterialPtr();
+        if (ppTech && own && own->getSupportedTechniques().empty() && RepairUnsupportedMaterial(own.get()))
+        {
+            Technique* t = own->getBestTechnique(0, rend); // RTSS scheme -> SafeResolverListener
+            if (TechniqueIsProgrammable(t))
+            {
+                *ppTech = t;
+                return true;
+            }
+        }
+
         if (!ppTech || TechniqueIsProgrammable(*ppTech))
             return true;
 
