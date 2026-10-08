@@ -21,6 +21,10 @@
 #include <imgui_internal.h>
 
 #include <MyGUI.h>
+#include <MyGUI_OgreRenderManager.h>
+
+#include <OgreHighLevelGpuProgram.h>
+#include <OgreHighLevelGpuProgramManager.h>
 
 #include <OgreMaterialManager.h>
 #include <OgreOverlayManager.h>
@@ -64,7 +68,7 @@ void DumpWidget(MyGUI::Widget* w, int depth)
     const MyGUI::IntCoord c = w->getAbsoluteCoord();
     LogFormat("[RoR|Xbox] DIAG   %*smygui %s '%s' abs=(%d,%d %dx%d) alpha=%.2f", depth * 2, "", w->getTypeName().c_str(),
               w->getName().c_str(), c.left, c.top, c.width, c.height, w->getAlpha());
-    if (depth < 2)
+    if (depth < 3)
     {
         for (size_t i = 0; i < w->getChildCount(); ++i)
             DumpWidget(w->getChildAt(i), depth + 1);
@@ -175,7 +179,17 @@ void DumpState(Ogre::RenderWindow* window)
 
     if (MyGUI::Gui::getInstancePtr())
     {
-        LogFormat("[RoR|Xbox] DIAG   mygui pointer visible=%d", (int)MyGUI::PointerManager::getInstance().isVisible());
+        LogFormat("[RoR|Xbox] DIAG   mygui pointer visible=%d batches(last frame)=%u", (int)MyGUI::PointerManager::getInstance().isVisible(),
+                  (unsigned)MyGUI::OgreRenderManager::getInstance().getBatchCount());
+        for (const char* prog : {"MyGUI_VP.hlsl", "MyGUI_FP.hlsl"})
+        {
+            Ogre::HighLevelGpuProgramPtr p = Ogre::HighLevelGpuProgramManager::getSingleton().getByName(prog, "MyGuiRG");
+            if (p)
+                LogFormat("[RoR|Xbox] DIAG   mygui program %s loaded=%d compile_error=%d supported=%d", prog,
+                          (int)p->isLoaded(), (int)p->hasCompileError(), (int)p->isSupported());
+            else
+                LogFormat("[RoR|Xbox] DIAG   mygui program %s NOT FOUND", prog);
+        }
         MyGUI::EnumeratorWidgetPtr it = MyGUI::Gui::getInstance().getEnumerator();
         while (it.next())
             DumpWidget(it.current(), 0);
@@ -187,6 +201,49 @@ void DumpState(Ogre::RenderWindow* window)
 void BeforeRender(Ogre::RenderWindow* window)
 {
     const unsigned long now = Clock().getMilliseconds();
+
+    // One more dump 10 s into the first driving session (HUD / dashboards are MyGUI).
+    static unsigned long s_sim_since = 0;
+    static bool s_sim_dumped = false;
+    if (!s_sim_dumped && App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+    {
+        if (!s_sim_since)
+            s_sim_since = now ? now : 1;
+        else if (now - s_sim_since >= 10000)
+        {
+            s_sim_dumped = true;
+            LogFormat("[RoR|Xbox] DIAG ---- in simulation ----");
+            try { DumpState(window); }
+            catch (std::exception& e) { LogFormat("[RoR|Xbox] DIAG dump failed: %s", e.what()); }
+        }
+    }
+
+    // MyGUI probe: a green "MyGUI" label at the top right. Visible -> MyGUI rendering works.
+    static MyGUI::TextBox* s_probe = nullptr;
+    if (!s_probe && MyGUI::Gui::getInstancePtr() && now > 2000)
+    {
+        try
+        {
+            const MyGUI::IntSize vs = MyGUI::RenderManager::getInstance().getViewSize();
+            s_probe = MyGUI::Gui::getInstance().createWidget<MyGUI::TextBox>("TextBox",
+                MyGUI::IntCoord(vs.width - 260, 12, 240, 40), MyGUI::Align::Default, "Popup", "XboxDiagMyGuiProbe");
+            s_probe->setCaption("MyGUI");
+            s_probe->setTextColour(MyGUI::Colour(0.f, 1.f, 0.f, 1.f));
+            s_probe->setFontHeight(32);
+            s_probe->setTextAlign(MyGUI::Align::Right);
+            s_probe->setNeedMouseFocus(false);
+        }
+        catch (std::exception& e)
+        {
+            LogFormat("[RoR|Xbox] DIAG MyGUI probe failed: %s", e.what());
+            s_probe = reinterpret_cast<MyGUI::TextBox*>(1); // do not retry
+        }
+    }
+    if (s_probe && s_probe != reinterpret_cast<MyGUI::TextBox*>(1) && now >= STATUS_MS)
+    {
+        MyGUI::Gui::getInstance().destroyWidget(s_probe);
+        s_probe = reinterpret_cast<MyGUI::TextBox*>(1);
+    }
 
     if (g_next_dump < 2 && now >= DUMP_MS[g_next_dump])
     {
