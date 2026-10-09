@@ -321,6 +321,18 @@ bool RTShaderBootstrap::Init(std::string const& shaderlib_dir, std::string const
     if (HighLevelGpuProgramManager::getSingleton().isLanguageSupported("hlsl"))
         sg->setTargetLanguage("hlsl");
 
+    // Lighting: each RTSS shader is generated for a fixed "N point / M directional / K spot"
+    // mix and assumes the renderable's light list arrives in that order, but OGRE sorts lights
+    // by distance. With RoR's vehicle lights a spot/point light (e.g. a red brake light) was
+    // shaded as a directional light: no cone, no attenuation, flooding the terrain. Shade the
+    // sun only - directional lights always sort first. Order of the array: point, directional, spot.
+    {
+        RTShader::RenderState* rs = sg->getRenderState(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+        const int light_count[3] = { 0, 1, 0 };
+        rs->setLightCountAutoUpdate(false);
+        rs->setLightCount(light_count);
+    }
+
     // 3) Disk cache. ShaderGenerator::setShaderCachePath() throws if the path is not writable
     //    (exactly what happens with 'Documents\My Games' inside the UWP sandbox), and
     //    ProgramManager::createGpuProgram() returns null on a failed write -> which surfaces as

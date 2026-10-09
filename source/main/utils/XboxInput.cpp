@@ -79,6 +79,8 @@ template <typename V, typename D> void Remove(V& v, D const& d)
 
 std::atomic<unsigned> g_key_events{0}, g_char_events{0}, g_pointer_events{0}, g_mouse_delta_events{0};
 std::atomic<bool>     g_virtual_cursor{false};
+std::atomic<bool>     g_block_pad{false};   // mouse mode while driving: controller -> pointer only
+bool                  g_user_mouse_mode = false;
 
 long long NowUs()
 {
@@ -260,7 +262,7 @@ void GamepadJoyStick::capture()
     OIS::JoyStickState next = mState;
     next.clear(); // neutral when no pad is connected
 
-    Gamepad pad = FirstGamepad();
+    Gamepad pad = g_block_pad ? Gamepad(nullptr) : FirstGamepad(); // mouse mode: neutral to the game
     if (pad)
     {
         GamepadReading r = pad.GetCurrentReading();
@@ -284,8 +286,9 @@ void GamepadJoyStick::capture()
         next.mButtons[8] = has(GamepadButtons::LeftThumbstick);
         next.mButtons[9] = has(GamepadButtons::RightThumbstick);
 
+        // D-pad Right is reserved for the mouse-mode toggle (UpdateMouseMode).
         next.mPOV[0].direction = PovFromBits(has(GamepadButtons::DPadUp), has(GamepadButtons::DPadDown),
-                                             has(GamepadButtons::DPadLeft), has(GamepadButtons::DPadRight));
+                                             has(GamepadButtons::DPadLeft), false);
     }
     CommitAndNotify(this, mState, next, mListener, mBuffered);
 }
@@ -661,6 +664,22 @@ void CoreWindowMouse::capture()
 // =================================================================================================
 
 void SetVirtualCursorEnabled(bool on) { g_virtual_cursor = on; }
+
+bool UpdateMouseMode(bool menu_open)
+{
+    static bool s_prev_right = false;
+    Gamepad pad = FirstGamepad();
+    const bool right = pad && (static_cast<uint32_t>(pad.GetCurrentReading().Buttons) &
+                               static_cast<uint32_t>(GamepadButtons::DPadRight)) != 0;
+    if (!menu_open && right && !s_prev_right)
+        g_user_mouse_mode = !g_user_mouse_mode;
+    s_prev_right = right;
+
+    const bool cursor = menu_open || g_user_mouse_mode;
+    g_virtual_cursor = cursor;
+    g_block_pad = !menu_open && g_user_mouse_mode;
+    return cursor;
+}
 bool IsVirtualCursorEnabled()         { return g_virtual_cursor; }
 
 void FeedImGuiGamepadKeys(ImGuiIO& io, const OIS::Keyboard* kb)

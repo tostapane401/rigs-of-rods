@@ -52,7 +52,6 @@ namespace XboxDiag {
 
 namespace {
 
-const unsigned long STATUS_MS = 600000;       // on-screen input status lifetime
 const unsigned long DUMP_MS[2] = {8000, 30000}; // state dump times (RoR.log)
 
 Ogre::Timer& Clock()
@@ -223,28 +222,6 @@ void BeforeRender(Ogre::RenderWindow* window)
         }
     }
 
-    // MyGUI probe: a green "MyGUI" label at the top right. Visible -> MyGUI rendering works.
-    static MyGUI::TextBox* s_probe = nullptr;
-    if (!s_probe && MyGUI::Gui::getInstancePtr() && now > 2000)
-    {
-        try
-        {
-            const MyGUI::IntSize vs = MyGUI::RenderManager::getInstance().getViewSize();
-            s_probe = MyGUI::Gui::getInstance().createWidget<MyGUI::TextBox>("TextBox",
-                MyGUI::IntCoord(vs.width - 260, 12, 240, 40), MyGUI::Align::Default, "Popup", "XboxDiagMyGuiProbe");
-            s_probe->setCaption("MyGUI");
-            s_probe->setTextColour(MyGUI::Colour(0.f, 1.f, 0.f, 1.f));
-            s_probe->setFontHeight(32);
-            s_probe->setTextAlign(MyGUI::Align::Right);
-            s_probe->setNeedMouseFocus(false);
-        }
-        catch (std::exception& e)
-        {
-            LogFormat("[RoR|Xbox] DIAG MyGUI probe failed: %s", e.what());
-            s_probe = reinterpret_cast<MyGUI::TextBox*>(1); // do not retry
-        }
-    }
-
     if (g_next_dump < 2 && now >= DUMP_MS[g_next_dump])
     {
         try { DumpState(window); }
@@ -252,22 +229,12 @@ void BeforeRender(Ogre::RenderWindow* window)
         ++g_next_dump;
     }
 
-    // Rendering is confirmed working; during input bring-up show a one-line live input status
-    // at the top of the screen (first 10 minutes) and log it every 5 s for 2 minutes.
-    const std::string status = XboxInput::DebugStatus();
+    // Input status: logged every 5 s for the first 2 minutes (RoR.log), nothing on screen.
     static unsigned long s_last_log = 0;
     if (now < 120000 && now - s_last_log >= 5000)
     {
         s_last_log = now;
-        LogFormat("[RoR|Xbox] INPUT %s", status.c_str());
-    }
-    if (now < STATUS_MS)
-    {
-        ImDrawList* dl = ImGui::GetForegroundDrawList();
-        const float fs = ImGui::GetFontSize();
-        const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.f, status.c_str());
-        dl->AddRectFilled(ImVec2(8, 8), ImVec2(24 + size.x, 16 + size.y), IM_COL32(0, 0, 0, 170), 4.f);
-        dl->AddText(ImGui::GetFont(), fs, ImVec2(16, 12), IM_COL32(255, 230, 0, 255), status.c_str());
+        LogFormat("[RoR|Xbox] INPUT %s", XboxInput::DebugStatus().c_str());
     }
 }
 

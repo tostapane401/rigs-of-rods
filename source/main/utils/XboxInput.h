@@ -153,6 +153,12 @@ private:
 void SetVirtualCursorEnabled(bool on);
 bool IsVirtualCursorEnabled();
 
+/// Call once per frame. In menus the virtual cursor is always on. While driving, D-pad Right
+/// toggles "mouse mode": cursor on and the controller no longer drives the vehicle (its
+/// joystick state is reported neutral to InputEngine). D-pad Right is reserved for this toggle
+/// and never reaches the game's input map. Returns whether the cursor is active.
+bool UpdateMouseMode(bool menu_open);
+
 /// Controller D-pad -> arrow keys, X -> Enter, for RoR's keyboard-driven panels (main menu,
 /// selectors). OR-ed with the real keyboard. Call every frame before ImGui::NewFrame().
 void FeedImGuiGamepadKeys(ImGuiIO& io, const OIS::Keyboard* kb);

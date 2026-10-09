@@ -339,14 +339,15 @@ void GUIManager::NewImGuiFrame(float dt)
 
 #if defined(ROR_PLATFORM_UWP)
     // Controller in menus: left stick = mouse pointer, A = click, B = right click, RS = wheel,
-    // D-pad = arrow keys, X = Enter. Off while driving (no menu open): the controller then only
-    // feeds the vehicle controls through InputEngine.
+    // D-pad = arrow keys, X = Enter. While driving, D-pad Right toggles the same "mouse mode"
+    // (the controller then stops driving the vehicle until toggled off again).
     {
         const bool menu_open = App::app_state->getEnum<AppState>() != AppState::SIMULATION ||
             GameMainMenu.IsVisible() || MainSelector.IsVisible() || MultiplayerSelector.IsVisible() ||
             GameSettings.IsVisible() || GameControls.IsVisible() || GameAbout.IsVisible() ||
             RepositorySelector.IsVisible();
-        XboxInput::SetVirtualCursorEnabled(menu_open);
+        if (XboxInput::UpdateMouseMode(menu_open) && !menu_open)
+            this->SetMouseCursorVisibility(MouseCursorVisibility::VISIBLE); // mouse mode while driving
         XboxInput::FeedImGuiGamepadKeys(io, kb);
     }
 #endif
