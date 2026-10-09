@@ -143,6 +143,39 @@ if ($c -notmatch 'ROR_D3D11_BLIT_SCALE') {
     if ($c2 -notmatch 'ROR_D3D11_BLIT_SCALE' -or $c2 -notmatch 'OgreImage\.h') { throw "OGRE D3D11 blitFromMemory scaling patch did not apply" }
     Set-Content -NoNewline -Path $pixbuf -Value $c2
 }
+# D3D11VertexDeclaration throws when the vertex shader reads an input the mesh does not have
+# (typically TEXCOORD0 on a mod mesh without UVs whose material still has a texture). D3D9/GL
+# tolerate it; on D3D11 it was a fatal error when spawning such vehicles. Alias the missing input
+# to an existing element (same semantic with another index, any texcoord set, else position).
+$vdecl = Join-Path $ogre "RenderSystems\Direct3D11\src\OgreD3D11VertexDeclaration.cpp"
+$c = Get-Content -Raw $vdecl
+if ($c -notmatch 'ROR_D3D11_MISSING_SEMANTIC') {
+    $aliasCode = @'
+// ROR_D3D11_MISSING_SEMANTIC
+                    VertexElementList::const_iterator fb = iend;
+                    for (VertexElementList::const_iterator j = mElementList.begin(); fb == iend && j != iend; ++j)
+                        if (strcmp(D3D11Mappings::get(j->getSemantic()), inputDesc.SemanticName) == 0) fb = j;
+                    for (VertexElementList::const_iterator j = mElementList.begin(); fb == iend && j != iend; ++j)
+                        if (j->getSemantic() == VES_TEXTURE_COORDINATES) fb = j;
+                    for (VertexElementList::const_iterator j = mElementList.begin(); fb == iend && j != iend; ++j)
+                        if (j->getSemantic() == VES_POSITION) fb = j;
+                    if (fb == iend)
+                    {
+                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
+                                    StringUtil::format("No VertexElement for semantic %s in shader %s found",
+                                                       inputDesc.SemanticName, boundVertexProgram->getName().c_str()));
+                    }
+                    LogManager::getSingleton().logMessage(StringUtil::format(
+                        "D3D11: vertex data has no %s%u needed by shader %s - aliased to another vertex element",
+                        inputDesc.SemanticName, inputDesc.SemanticIndex, boundVertexProgram->getName().c_str()), LML_CRITICAL);
+                    i = fb;
+'@
+    $re = [regex]'OGRE_EXCEPT\(Exception::ERR_RENDERINGAPI_ERROR,\s*StringUtil::format\("No VertexElement for semantic %s in shader %s found",[^;]*;'
+    $c2 = $re.Replace($c, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $aliasCode }, 1)
+    $c2 = $c2.Replace('#include "OgreD3D11Device.h"', "#include `"OgreD3D11Device.h`"`n#include `"OgreLogManager.h`"")
+    if ($c2 -notmatch 'ROR_D3D11_MISSING_SEMANTIC' -or $c2 -notmatch 'OgreLogManager\.h') { throw "OGRE D3D11 vertex declaration patch did not apply" }
+    Set-Content -NoNewline -Path $vdecl -Value $c2
+}
 Build-CMake "ogre" $ogre @(
     "-DOGRE_BUILD_DEPENDENCIES=OFF", "-DOGRE_DEPENDENCIES_DIR=$PrefixFwd",
     "-DZZip_INCLUDE_DIR=$PrefixFwd/include", "-DZZip_LIBRARY_REL=$($zzipLib.FullName -replace '\\','/')",
