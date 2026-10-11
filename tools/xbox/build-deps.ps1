@@ -200,6 +200,31 @@ if ($c -notmatch 'ROR_NAMED_CONSTANTS_NO_THROW') {
     if ($c2 -notmatch 'ROR_NAMED_CONSTANTS_NO_THROW') { throw "OGRE named-constants patch did not apply" }
     Set-Content -NoNewline -Path $gpp -Value $c2
 }
+# Pass::get/setGpuProgramParameters throw when the pass has no program of that type. RoR strips
+# unusable (Cg) programs from mod materials so the RTSS can draw them; code that later touches
+# those materials' parameters (water, terrain, scripts) must not kill the game. Return an inert
+# parameter set / ignore instead.
+$pass = Join-Path $ogre "OgreMain\src\OgrePass.cpp"
+$c = Get-Content -Raw $pass
+if ($c -notmatch 'ROR_PASS_PARAMS_NO_THROW') {
+    $getCode = @'
+
+            // ROR_PASS_PARAMS_NO_THROW
+            static GpuProgramParametersSharedPtr s_inert;
+            if (!s_inert)
+            {
+                s_inert.reset(new GpuProgramParameters());
+                s_inert->setIgnoreMissingParams(true);
+            }
+            return s_inert;
+'@
+    $reGet = [regex]'(const GpuProgramParametersSharedPtr& Pass::getGpuProgramParameters\(GpuProgramType type\) const\s*\{[^}]*?if \(!programUsage\)\s*\{)\s*OGRE_EXCEPT\s*\(Exception::ERR_INVALIDPARAMS,\s*"This pass does not have this program type assigned!"\);'
+    $reSet = [regex]'(void Pass::setGpuProgramParameters\(GpuProgramType type, const GpuProgramParametersSharedPtr& params\)\s*\{[^}]*?if \(!programUsage\)\s*\{)\s*OGRE_EXCEPT\s*\(Exception::ERR_INVALIDPARAMS,\s*"This pass does not have this program type assigned!"\);'
+    $c2 = $reGet.Replace($c, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + $getCode }, 1)
+    $c2 = $reSet.Replace($c2, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + "`n            return; // ROR_PASS_PARAMS_NO_THROW" }, 1)
+    if (([regex]::Matches($c2, 'ROR_PASS_PARAMS_NO_THROW')).Count -ne 2) { throw "OGRE Pass params patch did not apply" }
+    Set-Content -NoNewline -Path $pass -Value $c2
+}
 Build-CMake "ogre" $ogre @(
     "-DOGRE_BUILD_DEPENDENCIES=OFF", "-DOGRE_DEPENDENCIES_DIR=$PrefixFwd",
     "-DZZip_INCLUDE_DIR=$PrefixFwd/include", "-DZZip_LIBRARY_REL=$($zzipLib.FullName -replace '\\','/')",

@@ -29,6 +29,7 @@
 #include <OgreRenderSystem.h>
 #include <OgreResourceGroupManager.h>
 #include <OgreRoot.h>
+#include <OgreLight.h>
 #include <OgreTechnique.h>
 #include <OgreMaterialManager.h>
 #include <OgreTextureUnitState.h>
@@ -253,7 +254,26 @@ Technique* RTShaderBootstrap::SafeResolverListener::handleSchemeNotFound(
 void RTShaderBootstrap::SchemeEnforcer::preFindVisibleObjects(
     SceneManager* source, SceneManager::IlluminationRenderStage irs, Viewport* vp)
 {
-    (void)source; (void)irs;
+    (void)irs;
+#if defined(ROR_PLATFORM_UWP)
+    // Vehicle head/brake/tail lights and beacons are point/spot lights. The RTSS shaders shade
+    // the sun only (see light count in Start()), and RoR's terrain shader treats "light 0" as an
+    // unattenuated light without cone: whenever a vehicle light became light 0 of a terrain tile,
+    // the terrain was flooded with its colour up to the horizon. Keep local lights out of every
+    // light list on Xbox (mask 0); the flares (billboards) stay visible.
+    if (source)
+    {
+        SceneManager::MovableObjectIterator it = source->getMovableObjectIterator(LightFactory::FACTORY_TYPE_NAME);
+        while (it.hasMoreElements())
+        {
+            Light* l = static_cast<Light*>(it.getNext());
+            if (l->getType() != Light::LT_DIRECTIONAL && l->getLightMask() != 0)
+                l->setLightMask(0);
+        }
+    }
+#else
+    (void)source;
+#endif
     if (vp && vp->getMaterialScheme() == MaterialManager::DEFAULT_SCHEME_NAME)
     {
         vp->setMaterialScheme(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
