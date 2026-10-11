@@ -17,6 +17,7 @@
 #include "PlatformUtils.h"
 #include "XboxInput.h"
 #include "GameContext.h"
+#include "GfxScene.h"
 #include "Actor.h"
 
 #include <imgui.h>
@@ -35,6 +36,8 @@
 #include <OgreOverlayElement.h>
 #include <OgreRenderWindow.h>
 #include <OgreRoot.h>
+#include <OgreLight.h>
+#include <OgreSceneManager.h>
 #include <OgreTechnique.h>
 #include <OgreTimer.h>
 #include <OgreViewport.h>
@@ -89,6 +92,45 @@ void DumpOverlayElement(Ogre::OverlayElement* e, int depth)
         while (it.hasMoreElements())
             DumpOverlayElement(it.getNext(), depth + 1);
     }
+}
+
+const char* LightTypeName(Ogre::Light::LightTypes t)
+{
+    switch (t)
+    {
+    case Ogre::Light::LT_DIRECTIONAL: return "directional";
+    case Ogre::Light::LT_POINT:       return "point";
+    case Ogre::Light::LT_SPOTLIGHT:   return "spot";
+    default:                          return "other";
+    }
+}
+
+/// Every visible light in the scene (vehicle head/brake lights are spot/point lights).
+void DumpLights()
+{
+    Ogre::SceneManager* sm = App::GetGfxScene()->GetSceneManager();
+    if (!sm)
+        return;
+    int n = 0;
+    Ogre::SceneManager::MovableObjectIterator it = sm->getMovableObjectIterator(Ogre::LightFactory::FACTORY_TYPE_NAME);
+    while (it.hasMoreElements())
+    {
+        Ogre::Light* l = static_cast<Ogre::Light*>(it.getNext());
+        if (!l->isVisible() || !l->isAttached())
+            continue;
+        const Ogre::Vector3 pos = l->getDerivedPosition();
+        const Ogre::Vector3 dir = l->getDerivedDirection();
+        const Ogre::ColourValue c = l->getDiffuseColour();
+        LogFormat("[RoR|Xbox] LIGHT '%s' %s pos=(%.1f,%.1f,%.1f) dir=(%.2f,%.2f,%.2f) diffuse=(%.2f,%.2f,%.2f) "
+                  "range=%.1f att=(%.3f,%.4f,%.5f) spot=(%.1f,%.1f deg, falloff %.2f) mask=%08X",
+                  l->getName().c_str(), LightTypeName(l->getType()), pos.x, pos.y, pos.z, dir.x, dir.y, dir.z,
+                  c.r, c.g, c.b, l->getAttenuationRange(), l->getAttenuationConstant(), l->getAttenuationLinear(),
+                  l->getAttenuationQuadric(), l->getSpotlightInnerAngle().valueDegrees(),
+                  l->getSpotlightOuterAngle().valueDegrees(), l->getSpotlightFalloff(), l->getLightMask());
+        if (++n >= 40)
+            break;
+    }
+    LogFormat("[RoR|Xbox] LIGHT total visible: %d", n);
 }
 
 void DumpState(Ogre::RenderWindow* window)
@@ -220,6 +262,15 @@ void BeforeRender(Ogre::RenderWindow* window)
             try { DumpState(window); }
             catch (std::exception& e) { LogFormat("[RoR|Xbox] DIAG dump failed: %s", e.what()); }
         }
+    }
+
+    // While driving: the active lights every 10 s for 5 minutes (vehicle light diagnostics).
+    static unsigned long s_last_lights = 0;
+    if (s_sim_since && now - s_sim_since < 300000 && now - s_last_lights >= 10000)
+    {
+        s_last_lights = now;
+        try { DumpLights(); }
+        catch (std::exception& e) { LogFormat("[RoR|Xbox] LIGHT dump failed: %s", e.what()); }
     }
 
     if (g_next_dump < 2 && now >= DUMP_MS[g_next_dump])

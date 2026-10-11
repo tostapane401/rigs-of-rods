@@ -176,6 +176,30 @@ if ($c -notmatch 'ROR_D3D11_MISSING_SEMANTIC') {
     if ($c2 -notmatch 'ROR_D3D11_MISSING_SEMANTIC' -or $c2 -notmatch 'OgreLogManager\.h') { throw "OGRE D3D11 vertex declaration patch did not apply" }
     Set-Content -NoNewline -Path $vdecl -Value $c2
 }
+# GpuProgramParameters::_findNamedConstantDefinition throws when code sets a parameter on a program
+# that failed to compile (no named constants). Hydrax / SkyX / the terrain material generator set
+# parameters every frame, so a single shader that does not compile on D3D11 took the whole game
+# down ("Named constants have not been initialised"). Log (a few times) and ignore instead; the
+# affected effect is simply not drawn.
+$gpp = Join-Path $ogre "OgreMain\src\OgreGpuProgramParams.cpp"
+$c = Get-Content -Raw $gpp
+if ($c -notmatch 'ROR_NAMED_CONSTANTS_NO_THROW') {
+    $noThrow = @'
+// ROR_NAMED_CONSTANTS_NO_THROW
+            if (throwExceptionIfNotFound)
+            {
+                static int s_reported = 0;
+                if (s_reported++ < 20 && LogManager::getSingletonPtr())
+                    LogManager::getSingleton().logMessage("WARNING: parameter '" + name +
+                        "' set on a GPU program without named constants (failed to compile?) - ignored", LML_CRITICAL);
+            }
+'@
+    $re = [regex]'if \(throwExceptionIfNotFound\)\s*OGRE_EXCEPT\(Exception::ERR_INVALIDPARAMS,\s*"Named constants have not been initialised, perhaps a compile error\.",[^;]*;'
+    $c2 = $re.Replace($c, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $noThrow }, 1)
+    $c2 = $c2.Replace('#include "OgreStableHeaders.h"', "#include `"OgreStableHeaders.h`"`n#include `"OgreLogManager.h`"")
+    if ($c2 -notmatch 'ROR_NAMED_CONSTANTS_NO_THROW') { throw "OGRE named-constants patch did not apply" }
+    Set-Content -NoNewline -Path $gpp -Value $c2
+}
 Build-CMake "ogre" $ogre @(
     "-DOGRE_BUILD_DEPENDENCIES=OFF", "-DOGRE_DEPENDENCIES_DIR=$PrefixFwd",
     "-DZZip_INCLUDE_DIR=$PrefixFwd/include", "-DZZip_LIBRARY_REL=$($zzipLib.FullName -replace '\\','/')",
