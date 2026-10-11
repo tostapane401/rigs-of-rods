@@ -488,8 +488,17 @@ void TerrainGeometryManager::configureTerrainDefaults()
     }
 
     terrainOptions->setLayerBlendMapSize   (m_spec->layer_blendmap_size);
+#if defined(ROR_PLATFORM_UWP)
+    // Xbox/D3D11: the detailed near-terrain shader renders untextured (ambient grey), while the
+    // composite-map technique (textures + colour map + lighting baked into one texture) works.
+    // Use the composite map at every distance, at a higher resolution so it stays sharp up close.
+    terrainOptions->setCompositeMapSize    (std::max<int>(m_spec->composite_map_size, 4096));
+    terrainOptions->setCompositeMapDistance(1.f);
+    LOG("[RoR|Xbox] Terrain: composite map at all distances (4096)");
+#else
     terrainOptions->setCompositeMapSize    (m_spec->composite_map_size);
     terrainOptions->setCompositeMapDistance(m_spec->composite_map_distance);
+#endif
     terrainOptions->setSkirtSize           (m_spec->skirt_size);
     terrainOptions->setLightMapSize        (m_spec->lightmap_size);
 

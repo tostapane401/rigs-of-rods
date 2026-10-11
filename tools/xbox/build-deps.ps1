@@ -165,9 +165,11 @@ if ($c -notmatch 'ROR_D3D11_MISSING_SEMANTIC') {
                                     StringUtil::format("No VertexElement for semantic %s in shader %s found",
                                                        inputDesc.SemanticName, boundVertexProgram->getName().c_str()));
                     }
-                    LogManager::getSingleton().logMessage(StringUtil::format(
-                        "D3D11: vertex data has no %s%u needed by shader %s - aliased to another vertex element",
-                        inputDesc.SemanticName, inputDesc.SemanticIndex, boundVertexProgram->getName().c_str()), LML_CRITICAL);
+                    static int s_aliasLogs = 0;
+                    if (s_aliasLogs++ < 20)
+                        LogManager::getSingleton().logMessage(StringUtil::format(
+                            "D3D11: vertex data has no %s%u needed by shader %s - aliased to another vertex element",
+                            inputDesc.SemanticName, inputDesc.SemanticIndex, boundVertexProgram->getName().c_str()), LML_CRITICAL);
                     i = fb;
 '@
     $re = [regex]'OGRE_EXCEPT\(Exception::ERR_RENDERINGAPI_ERROR,\s*StringUtil::format\("No VertexElement for semantic %s in shader %s found",[^;]*;'
