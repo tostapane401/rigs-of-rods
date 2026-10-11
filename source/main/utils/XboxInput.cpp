@@ -259,10 +259,12 @@ void GamepadJoyStick::_initialize()
     mSliders = 0;
 }
 
-// LB function-key layer. Runs every frame from GamepadJoyStick::capture().
+// LB function-key layer (toggle). Runs every frame from GamepadJoyStick::capture().
 static void UpdateFunctionLayer(Gamepad const& pad)
 {
     static bool s_down[10] = {};
+    static bool s_layer = false;
+    static bool s_prev_lb = false;
     static const OIS::KeyCode KEYS[10] = { OIS::KC_F1, OIS::KC_F2, OIS::KC_F3, OIS::KC_F4, OIS::KC_F5,
                                            OIS::KC_F6, OIS::KC_F7, OIS::KC_F8, OIS::KC_F9, OIS::KC_F10 };
     bool want[10] = {};
@@ -273,7 +275,9 @@ static void UpdateFunctionLayer(Gamepad const& pad)
         const uint32_t b = static_cast<uint32_t>(r.Buttons);
         auto has = [b](GamepadButtons f) { return (b & static_cast<uint32_t>(f)) != 0; };
         lb = has(GamepadButtons::LeftShoulder);
-        if (lb)
+        if (lb && !s_prev_lb)
+            s_layer = !s_layer; // press LB: on / press again: off
+        if (s_layer)
         {
             want[0] = has(GamepadButtons::A);
             want[1] = has(GamepadButtons::B);
@@ -287,7 +291,10 @@ static void UpdateFunctionLayer(Gamepad const& pad)
             want[9] = r.RightTrigger > 0.5;
         }
     }
-    g_fn_layer = lb;
+    s_prev_lb = lb;
+    if (!pad)
+        s_layer = false;
+    g_fn_layer = s_layer;
     for (int i = 0; i < 10; ++i)
     {
         if (want[i] != s_down[i] && g_keyboard)
@@ -331,9 +338,10 @@ void GamepadJoyStick::capture()
         next.mPOV[0].direction = PovFromBits(has(GamepadButtons::DPadUp), has(GamepadButtons::DPadDown),
                                              has(GamepadButtons::DPadLeft), false);
 
-        if (g_fn_layer) // LB held: A/B/X/Y, D-pad, LT/RT and LB itself act as F1..F10 only
+        next.mButtons[4] = false; // LB = function-layer toggle, never a game control
+        if (g_fn_layer) // layer on: A/B/X/Y, D-pad and LT/RT act as F1..F10 only
         {
-            for (int i = 0; i <= 4; ++i) // A B X Y LB
+            for (int i = 0; i <= 3; ++i) // A B X Y
                 next.mButtons[i] = false;
             next.mPOV[0].direction = OIS::Pov::Centered;
             next.mAxes[4].abs = 0;
@@ -735,6 +743,7 @@ bool UpdateMouseMode(bool menu_open)
 }
 bool IsVirtualCursorEnabled()         { return g_virtual_cursor; }
 bool IsFunctionLayerActive()          { return g_fn_layer; }
+bool IsDrivingMouseModeActive()       { return g_block_pad; }
 
 void FeedImGuiGamepadKeys(ImGuiIO& io, const OIS::Keyboard* kb)
 {

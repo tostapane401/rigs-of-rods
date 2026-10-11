@@ -357,6 +357,25 @@ void GUIManager::NewImGuiFrame(float dt)
     ev.timeSinceLastFrame = dt;
     Ogre::ImGuiOverlay::NewFrame(ev);
 
+#if defined(ROR_PLATFORM_UWP)
+    // Controller mode badges (top centre): LB function-key layer, D-pad Right mouse mode.
+    {
+        std::string badge;
+        if (XboxInput::IsFunctionLayerActive())
+            badge += "LB: A B X Y = F1-F4 | D-pad = F5-F8 | LT RT = F9 F10";
+        if (XboxInput::IsDrivingMouseModeActive())
+            badge += badge.empty() ? "MOUSE" : "   |   MOUSE";
+        if (!badge.empty())
+        {
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            const ImVec2 ts = ImGui::CalcTextSize(badge.c_str());
+            const float x = (io.DisplaySize.x - ts.x) * 0.5f, y = 8.f;
+            dl->AddRectFilled(ImVec2(x - 10.f, y - 4.f), ImVec2(x + ts.x + 10.f, y + ts.y + 4.f), IM_COL32(0, 0, 0, 170), 6.f);
+            dl->AddText(ImVec2(x, y), IM_COL32(255, 210, 0, 255), badge.c_str());
+        }
+    }
+#endif
+
     // Reset state
     m_gui_kb_capture_queued = false;
 }

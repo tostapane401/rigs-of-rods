@@ -161,9 +161,12 @@ bool IsVirtualCursorEnabled();
 /// and never reaches the game's input map. Returns whether the cursor is active.
 bool UpdateMouseMode(bool menu_open);
 
-/// LB held = function-key layer: A B X Y -> F1..F4, D-pad Up Down Right Left -> F5..F8,
-/// LT RT -> F9 F10 (sent as keyboard keys). True while LB is held.
+/// LB toggles the function-key layer: A B X Y -> F1..F4, D-pad Up Down Right Left -> F5..F8,
+/// LT RT -> F9 F10 (sent as keyboard keys). True while the layer is on.
 bool IsFunctionLayerActive();
+
+/// True while "mouse mode" was switched on with D-pad Right during driving.
+bool IsDrivingMouseModeActive();
 
 /// Controller D-pad -> arrow keys, X -> Enter, for RoR's keyboard-driven panels (main menu,
 /// selectors). OR-ed with the real keyboard. Call every frame before ImGui::NewFrame().
