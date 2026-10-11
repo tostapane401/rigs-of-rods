@@ -119,6 +119,8 @@ public:
     const std::string& getAsString(OIS::KeyCode kc) override;
     OIS::KeyCode getAsKeyCode(std::string str) override;
     void copyKeyStates(char keys[256]) const override;
+    /// Synthetic key event (controller LB combos -> F1..F10); delivered on the next capture().
+    void InjectKey(OIS::KeyCode kc, bool down) { m_queue.push_back({ kc, 0u, down }); }
 private:
     struct Ev { OIS::KeyCode kc; unsigned int text; bool down; };
     std::deque<Ev> m_queue;
@@ -158,6 +160,10 @@ bool IsVirtualCursorEnabled();
 /// joystick state is reported neutral to InputEngine). D-pad Right is reserved for this toggle
 /// and never reaches the game's input map. Returns whether the cursor is active.
 bool UpdateMouseMode(bool menu_open);
+
+/// LB held = function-key layer: A B X Y -> F1..F4, D-pad Up Down Right Left -> F5..F8,
+/// LT RT -> F9 F10 (sent as keyboard keys). True while LB is held.
+bool IsFunctionLayerActive();
 
 /// Controller D-pad -> arrow keys, X -> Enter, for RoR's keyboard-driven panels (main menu,
 /// selectors). OR-ed with the real keyboard. Call every frame before ImGui::NewFrame().

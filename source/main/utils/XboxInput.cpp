@@ -81,6 +81,8 @@ std::atomic<unsigned> g_key_events{0}, g_char_events{0}, g_pointer_events{0}, g_
 std::atomic<bool>     g_virtual_cursor{false};
 std::atomic<bool>     g_block_pad{false};   // mouse mode while driving: controller -> pointer only
 bool                  g_user_mouse_mode = false;
+std::atomic<bool>     g_fn_layer{false};    // LB held: function-key layer
+CoreWindowKeyboard*   g_keyboard = nullptr;   // for synthetic key events (LB layer)
 
 long long NowUs()
 {
@@ -257,10 +259,49 @@ void GamepadJoyStick::_initialize()
     mSliders = 0;
 }
 
+// LB function-key layer. Runs every frame from GamepadJoyStick::capture().
+static void UpdateFunctionLayer(Gamepad const& pad)
+{
+    static bool s_down[10] = {};
+    static const OIS::KeyCode KEYS[10] = { OIS::KC_F1, OIS::KC_F2, OIS::KC_F3, OIS::KC_F4, OIS::KC_F5,
+                                           OIS::KC_F6, OIS::KC_F7, OIS::KC_F8, OIS::KC_F9, OIS::KC_F10 };
+    bool want[10] = {};
+    bool lb = false;
+    if (pad)
+    {
+        GamepadReading r = pad.GetCurrentReading();
+        const uint32_t b = static_cast<uint32_t>(r.Buttons);
+        auto has = [b](GamepadButtons f) { return (b & static_cast<uint32_t>(f)) != 0; };
+        lb = has(GamepadButtons::LeftShoulder);
+        if (lb)
+        {
+            want[0] = has(GamepadButtons::A);
+            want[1] = has(GamepadButtons::B);
+            want[2] = has(GamepadButtons::X);
+            want[3] = has(GamepadButtons::Y);
+            want[4] = has(GamepadButtons::DPadUp);
+            want[5] = has(GamepadButtons::DPadDown);
+            want[6] = has(GamepadButtons::DPadRight);
+            want[7] = has(GamepadButtons::DPadLeft);
+            want[8] = r.LeftTrigger > 0.5;
+            want[9] = r.RightTrigger > 0.5;
+        }
+    }
+    g_fn_layer = lb;
+    for (int i = 0; i < 10; ++i)
+    {
+        if (want[i] != s_down[i] && g_keyboard)
+            g_keyboard->InjectKey(KEYS[i], want[i]);
+        s_down[i] = want[i];
+    }
+}
+
 void GamepadJoyStick::capture()
 {
     OIS::JoyStickState next = mState;
     next.clear(); // neutral when no pad is connected
+
+    UpdateFunctionLayer(FirstGamepad());
 
     Gamepad pad = g_block_pad ? Gamepad(nullptr) : FirstGamepad(); // mouse mode: neutral to the game
     if (pad)
@@ -289,6 +330,14 @@ void GamepadJoyStick::capture()
         // D-pad Right is reserved for the mouse-mode toggle (UpdateMouseMode).
         next.mPOV[0].direction = PovFromBits(has(GamepadButtons::DPadUp), has(GamepadButtons::DPadDown),
                                              has(GamepadButtons::DPadLeft), false);
+
+        if (g_fn_layer) // LB held: A/B/X/Y, D-pad, LT/RT and LB itself act as F1..F10 only
+        {
+            for (int i = 0; i <= 4; ++i) // A B X Y LB
+                next.mButtons[i] = false;
+            next.mPOV[0].direction = OIS::Pov::Centered;
+            next.mAxes[4].abs = 0;
+        }
     }
     CommitAndNotify(this, mState, next, mListener, mBuffered);
 }
@@ -467,12 +516,15 @@ CoreWindowKeyboard::CoreWindowKeyboard(int dev_id)
 
 CoreWindowKeyboard::~CoreWindowKeyboard()
 {
+    if (g_keyboard == this)
+        g_keyboard = nullptr;
     Uwp::SetKeyboardHandler(nullptr);
     Uwp::SetCharacterHandler(nullptr);
 }
 
 void CoreWindowKeyboard::_initialize()
 {
+    g_keyboard = this;
     Uwp::SetKeyboardHandler([this](Uwp::KeyboardEvent const& e)
     {
         ++g_key_events;
@@ -619,7 +671,8 @@ void CoreWindowMouse::capture()
         m_scroll_acc += (float)StickCurve(r.RightThumbstickY) * 8.f * dt; // ~8 wheel steps/s
         while (m_scroll_acc >= 1.f)  { m_rel_z += 120; m_scroll_acc -= 1.f; m_moved = true; }
         while (m_scroll_acc <= -1.f) { m_rel_z -= 120; m_scroll_acc += 1.f; m_moved = true; }
-        m_pad_buttons = ((b & static_cast<uint32_t>(GamepadButtons::A)) ? 1 << OIS::MB_Left : 0) |
+        m_pad_buttons = g_fn_layer ? 0 :
+                        ((b & static_cast<uint32_t>(GamepadButtons::A)) ? 1 << OIS::MB_Left : 0) |
                         ((b & static_cast<uint32_t>(GamepadButtons::B)) ? 1 << OIS::MB_Right : 0);
     }
     else
@@ -671,7 +724,7 @@ bool UpdateMouseMode(bool menu_open)
     Gamepad pad = FirstGamepad();
     const bool right = pad && (static_cast<uint32_t>(pad.GetCurrentReading().Buttons) &
                                static_cast<uint32_t>(GamepadButtons::DPadRight)) != 0;
-    if (!menu_open && right && !s_prev_right)
+    if (!menu_open && right && !s_prev_right && !g_fn_layer)
         g_user_mouse_mode = !g_user_mouse_mode;
     s_prev_right = right;
 
@@ -681,12 +734,13 @@ bool UpdateMouseMode(bool menu_open)
     return cursor;
 }
 bool IsVirtualCursorEnabled()         { return g_virtual_cursor; }
+bool IsFunctionLayerActive()          { return g_fn_layer; }
 
 void FeedImGuiGamepadKeys(ImGuiIO& io, const OIS::Keyboard* kb)
 {
     static bool s_prev[5] = {};
     Gamepad pad = FirstGamepad();
-    const uint32_t b = pad ? static_cast<uint32_t>(pad.GetCurrentReading().Buttons) : 0u;
+    const uint32_t b = (pad && !g_fn_layer) ? static_cast<uint32_t>(pad.GetCurrentReading().Buttons) : 0u;
     const struct { OIS::KeyCode kc; GamepadButtons btn; } MAP[5] = {
         { OIS::KC_UP, GamepadButtons::DPadUp },     { OIS::KC_DOWN, GamepadButtons::DPadDown },
         { OIS::KC_LEFT, GamepadButtons::DPadLeft }, { OIS::KC_RIGHT, GamepadButtons::DPadRight },
