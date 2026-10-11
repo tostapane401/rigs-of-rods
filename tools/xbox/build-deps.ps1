@@ -341,6 +341,38 @@ Build-Optional "caelum" {
 }
 Build-Optional "pagedgeometry" {
     $pg = Get-Source "pagedgeometry" "https://github.com/RigsOfRods/ogre-pagedgeometry.git"
+    # Grass shader: generated for vs_1_1 (not a D3D11 target) in D3D9-style HLSL, and the pass has
+    # no pixel shader (D3D11 has no fixed-function pixel stage) -> grass drawn as white crosses.
+    $grass = Join-Path $pg "source\GrassLoader.cpp"
+    $c = Get-Content -Raw $grass
+    if ($c -notmatch 'ROR_D3D11_GRASS') {
+        $c = $c.Replace('vertexShader->setParameter("target", "vs_1_1");',
+            'vertexShader->setParameter("target", GpuProgramManager::getSingleton().isSyntaxSupported("vs_4_0") ? "vs_4_0" : "vs_1_1"); vertexShader->setParameter("enable_backwards_compatibility", "true"); /* ROR_D3D11_GRASS */')
+        $fp = @'
+pass->setVertexProgram(vsName);
+				if (shaderLanguage == "hlsl" && GpuProgramManager::getSingleton().isSyntaxSupported("vs_4_0"))
+				{
+					/* ROR_D3D11_GRASS: D3D11 needs a pixel shader too */
+					const String fpName = "PagedGeometry/GrassFP_D3D11";
+					HighLevelGpuProgramPtr grassFP = Ogre::static_pointer_cast<HighLevelGpuProgram>(HighLevelGpuProgramManager::getSingleton().getByName(fpName));
+					if (!grassFP)
+					{
+						grassFP = HighLevelGpuProgramManager::getSingleton().createProgram(fpName,
+							ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "hlsl", GPT_FRAGMENT_PROGRAM);
+						grassFP->setSource("float4 main(float4 pos : POSITION, float4 color : COLOR, float2 uv : TEXCOORD0, uniform sampler2D tex : register(s0)) : COLOR { return tex2D(tex, uv) * color; }");
+						grassFP->setParameter("target", "ps_4_0");
+						grassFP->setParameter("entry_point", "main");
+						grassFP->setParameter("enable_backwards_compatibility", "true");
+						grassFP->load();
+					}
+					pass->setFragmentProgram(fpName);
+				}
+'@
+        $c = $c.Replace('pass->setVertexProgram(vsName);', $fp.TrimEnd())
+        $c = $c.Replace('#include "OgreMaterial.h"', "#include `"OgreMaterial.h`"`r`n#include `"OgreGpuProgramManager.h`"`r`n#include `"OgreHighLevelGpuProgramManager.h`"")
+        if (([regex]::Matches($c, 'ROR_D3D11_GRASS')).Count -ne 2) { throw "PagedGeometry grass patch did not apply" }
+        Set-Content -NoNewline -Path $grass -Value $c
+    }
     Build-CMake "pagedgeometry" $pg @("-DOGRE_DIR=$ogreCMakeDir")
 }
 

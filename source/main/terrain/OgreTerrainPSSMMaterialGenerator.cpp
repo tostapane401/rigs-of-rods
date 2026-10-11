@@ -1598,6 +1598,9 @@ TerrainPSSMMaterialGenerator::SM2Profile::ShaderHelperHLSL::createVertexProgram(
     else
         ret->setParameter("target", "vs_2_0");
     ret->setParameter("entry_point", "main_vp");
+    // The generated source is Cg/D3D9-style (sampler2D, tex2D, POSITION/COLOR outputs); D3D11
+    // only compiles that for SM4 targets in backwards-compatibility mode (ignored elsewhere).
+    ret->setParameter("enable_backwards_compatibility", "true");
 
     return ret;
 }
@@ -1628,6 +1631,9 @@ TerrainPSSMMaterialGenerator::SM2Profile::ShaderHelperHLSL::createFragmentProgra
     else
         ret->setParameter("target", "ps_2_x");
     ret->setParameter("entry_point", "main_fp");
+    // The generated source is Cg/D3D9-style (sampler2D, tex2D, POSITION/COLOR outputs); D3D11
+    // only compiles that for SM4 targets in backwards-compatibility mode (ignored elsewhere).
+    ret->setParameter("enable_backwards_compatibility", "true");
 
     return ret;
 }
