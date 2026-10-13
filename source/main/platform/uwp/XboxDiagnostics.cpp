@@ -39,6 +39,9 @@
 #include <OgreLight.h>
 #include <OgreSceneManager.h>
 #include <OgreTechnique.h>
+#include <OgrePass.h>
+#include <OgreTextureUnitState.h>
+#include <OgreGpuProgramParams.h>
 #include <OgreTimer.h>
 #include <OgreViewport.h>
 
@@ -131,6 +134,78 @@ void DumpLights()
             break;
     }
     LogFormat("[RoR|Xbox] LIGHT total visible: %d", n);
+}
+
+/// Terrain material diagnostics: programs, their source (once) and the parameter values the
+/// terrain shaders actually receive (uvMul_N = layer UV scale, lodMorph, scaleBiasSpecular...).
+void DumpTerrainMaterials()
+{
+    static bool s_source_logged = false;
+    int n = 0;
+    auto it = Ogre::MaterialManager::getSingleton().getResourceIterator();
+    while (it.hasMoreElements() && n < 2)
+    {
+        Ogre::MaterialPtr mat = Ogre::static_pointer_cast<Ogre::Material>(it.getNext());
+        if (!mat || mat->getName().find("OgreTerrain") == std::string::npos)
+            continue;
+        ++n;
+        LogFormat("[RoR|Xbox] TERRAIN material '%s' techniques=%d supported=%d", mat->getName().c_str(),
+                  (int)mat->getNumTechniques(), (int)mat->getSupportedTechniques().size());
+        for (Ogre::Technique* t : mat->getTechniques())
+        {
+            for (Ogre::Pass* p : t->getPasses())
+            {
+                LogFormat("[RoR|Xbox] TERRAIN   tech '%s' lod=%d pass vp='%s' fp='%s' tex_units=%d", t->getName().c_str(),
+                          (int)t->getLodIndex(), p->hasVertexProgram() ? p->getVertexProgramName().c_str() : "-",
+                          p->hasFragmentProgram() ? p->getFragmentProgramName().c_str() : "-", (int)p->getNumTextureUnitStates());
+                for (unsigned short u = 0; u < p->getNumTextureUnitStates(); ++u)
+                {
+                    Ogre::TextureUnitState* tus = p->getTextureUnitState(u);
+                    LogFormat("[RoR|Xbox] TERRAIN     tex[%d] '%s'", (int)u, tus->getTextureName().c_str());
+                }
+                for (Ogre::GpuProgramType gt : { Ogre::GPT_VERTEX_PROGRAM, Ogre::GPT_FRAGMENT_PROGRAM })
+                {
+                    if (!p->hasGpuProgram(gt))
+                        continue;
+                    Ogre::GpuProgramParametersSharedPtr params = p->getGpuProgramParameters(gt);
+                    if (!params || !params->hasNamedParameters())
+                    {
+                        LogFormat("[RoR|Xbox] TERRAIN     %s params: NO NAMED CONSTANTS", gt == Ogre::GPT_VERTEX_PROGRAM ? "vp" : "fp");
+                        continue;
+                    }
+                    for (const auto& c : params->getConstantDefinitions().map)
+                    {
+                        if (!c.second.isFloat() || c.second.arraySize > 1 || c.second.elementSize > 4)
+                            continue; // matrices: skip
+                        const float* v = params->getFloatPointer(c.second.physicalIndex);
+                        LogFormat("[RoR|Xbox] TERRAIN     %s %s = (%g, %g, %g, %g)", gt == Ogre::GPT_VERTEX_PROGRAM ? "vp" : "fp",
+                                  c.first.c_str(), v[0], c.second.elementSize > 1 ? v[1] : 0.f,
+                                  c.second.elementSize > 2 ? v[2] : 0.f, c.second.elementSize > 3 ? v[3] : 0.f);
+                    }
+                    if (!s_source_logged)
+                    {
+                        Ogre::HighLevelGpuProgramPtr hp = Ogre::static_pointer_cast<Ogre::HighLevelGpuProgram>(p->getGpuProgram(gt));
+                        if (hp)
+                        {
+                            std::string src = hp->getSource(), line;
+                            LogFormat("[RoR|Xbox] TERRAIN     ---- source of %s ----", hp->getName().c_str());
+                            size_t a = 0;
+                            while (a < src.size())
+                            {
+                                size_t b = src.find('\n', a);
+                                if (b == std::string::npos) b = src.size();
+                                LogFormat("[RoR|Xbox] SRC %s", src.substr(a, b - a).c_str());
+                                a = b + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        s_source_logged = true;
+    }
+    if (!n)
+        LogFormat("[RoR|Xbox] TERRAIN no OgreTerrain material found");
 }
 
 void DumpState(Ogre::RenderWindow* window)
@@ -259,6 +334,8 @@ void BeforeRender(Ogre::RenderWindow* window)
         {
             s_sim_dumped = true;
             LogFormat("[RoR|Xbox] DIAG ---- in simulation ----");
+            try { DumpTerrainMaterials(); }
+            catch (std::exception& e) { LogFormat("[RoR|Xbox] TERRAIN dump failed: %s", e.what()); }
             try { DumpState(window); }
             catch (std::exception& e) { LogFormat("[RoR|Xbox] DIAG dump failed: %s", e.what()); }
         }
