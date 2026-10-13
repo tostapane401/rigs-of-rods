@@ -176,9 +176,12 @@ i backend**:
 3. Il prefisso delle dipendenze va in cache (chiave = hash di `build-deps.ps1` + toolchain). La prima esecuzione è
    lenta, le successive compilano solo RoR.
 4. Artifact `ror-xbox-uwp-<versione>`: `.msix`, `.msixbundle`, `Microsoft.VCLibs.x64.14.00.appx`, `.cer`, `INSTALL-XBOX.txt`.
-5. Firma: senza secret viene generato un certificato self-signed a ogni esecuzione (in Dev Mode va bene, ma prima di
-   installare una build nuova devi disinstallare quella vecchia). Con i secret `XBOX_SIGNING_PFX_BASE64`,
-   `XBOX_SIGNING_PFX_PASSWORD` e `XBOX_PUBLISHER` l'identità resta stabile e gli aggiornamenti si installano sopra.
+5. Firma: senza secret la prima esecuzione genera un certificato self-signed e lo conserva nella cache di
+   GitHub Actions (`xbox-signing-cert-v1`); tutte le build successive usano lo stesso, quindi gli aggiornamenti
+   si installano sopra la versione precedente e `LocalState` (mod, impostazioni, salvataggi) resta.
+   Se la cache scade (nessuna build per più di 7 giorni) viene creato un certificato nuovo e serve una
+   disinstallazione. Per un'identità permanente: secret `XBOX_SIGNING_PFX_BASE64`, `XBOX_SIGNING_PFX_PASSWORD`
+   e `XBOX_PUBLISHER`.
 
 Installazione: vedi `tools/xbox/INSTALL-XBOX.txt` (Device Portal `https://<ip-console>:11443` → Add → `.msix` + dipendenza VCLibs).
 

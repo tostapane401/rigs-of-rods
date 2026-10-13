@@ -164,6 +164,37 @@ jobs:
           . ./tools/xbox/ci-common.ps1
           Invoke-Logged "build RoR" { cmake --build "$env:BUILD_DIR" --config Release --parallel -- /m /nr:false /p:CL_MPCount=2 /v:minimal /nologo } -TimeoutMinutes 110
 
+      # Signing identity. Every build must be signed with the SAME certificate, otherwise the Xbox
+      # refuses to update in place and the old version has to be uninstalled - which deletes
+      # LocalState (mods, settings, savegames). Without repository secrets, a self-signed
+      # certificate is generated once and kept in the Actions cache (refreshed by every run).
+      - name: Restore signing certificate
+        id: sign-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: C:\ror-uwp\signing
+          key: xbox-signing-cert-v1
+
+      - name: Create signing certificate (first run only)
+        if: steps.sign-cache.outputs.cache-hit != 'true'
+        run: |
+          $dir = "C:\ror-uwp\signing"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $certPass = [guid]::NewGuid().ToString("N")
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=RigsOfRodsDev" -KeyUsage DigitalSignature `
+            -FriendlyName "Rigs of Rods Xbox Dev Mode" -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}") -NotAfter (Get-Date).AddYears(10)
+          Export-PfxCertificate -Cert $cert -FilePath "$dir\ror-dev.pfx" -Password (ConvertTo-SecureString -String $certPass -Force -AsPlainText) | Out-Null
+          Set-Content -NoNewline -Path "$dir\password.txt" -Value $certPass
+          Write-Host "New persistent signing certificate: $($cert.Thumbprint)"
+
+      - name: Save signing certificate
+        if: steps.sign-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: C:\ror-uwp\signing
+          key: xbox-signing-cert-v1
+
       - name: Package (makeappx + signtool)
         timeout-minutes: 30
         env:
@@ -189,6 +220,12 @@ jobs:
             $pkgArgs.Pfx = $pfx
             $pkgArgs.PfxPassword = $env:PFX_PASSWORD
             if ($env:PUBLISHER) { $pkgArgs.Publisher = $env:PUBLISHER }
+          }
+          elseif (Test-Path "C:\ror-uwp\signing\ror-dev.pfx") {
+            $pkgArgs.Pfx = "C:\ror-uwp\signing\ror-dev.pfx"
+            $pkgArgs.PfxPassword = (Get-Content -Raw "C:\ror-uwp\signing\password.txt").Trim()
+            $thumb = (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pkgArgs.Pfx, $pkgArgs.PfxPassword)).Thumbprint
+            Write-Host "::notice title=Signing::persistent certificate $thumb (updates install in place, LocalState is kept)"
           }
           ./tools/xbox/package-msix.ps1 @pkgArgs
           "PKG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8

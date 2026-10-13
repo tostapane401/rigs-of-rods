@@ -27,3 +27,10 @@ Contenuti (veicoli, mappe)
 
 Log in caso di crash
   LocalState\RigsOfRods\logs\RoR.log  -> cerca righe "[RoR|RTSS]" e "D3D11 HLSL"
+
+Aggiornare a una build nuova
+  Le build sono firmate tutte con lo stesso certificato: installa la nuova SOPRA la vecchia
+  (Device Portal > Add, senza disinstallare). Mod, impostazioni e salvataggi restano.
+  Se l'installazione viene rifiutata per firma/editore diverso, il certificato e' cambiato:
+  copia prima la cartella LocalState\RigsOfRods\mods (Device Portal > File explorer), poi
+  disinstalla, installa e ricarica le mod.
